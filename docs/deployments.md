@@ -54,3 +54,15 @@ local Ping test then fired react() within ~55 s.
   3. Negative test on the final vault (attacker direct freeze): tx 0x29d7d0639cc3c018570f4f6b5794ef0732ef22cffffa04b63c6d143458305ae8 — FAILED as expected
 - Old v1 contracts (RSC 0x68A10a..., vault 0x14B661...) are superseded; their
   subscriptions used the broken wildcard and will never fire.
+
+## M2 stack (2026-11-17)
+- SentinelReactive v3 — Lasna: 0x946181Feb969e29cA42aF5dB0b17325CA524262e
+  deploy tx 0x6a625051b6bab8d60601a254ebba60e0ed6d039196a91c8e0d724af6d5ff2451 (1.5 balance + 1.0 reserves, depositTo tx 0x754c9c2f...)
+  setVault done for 84532 / 11155111 / 1301.
+- GuardedVault v2 (wait 180 s, threshold 0.02 ETH, funded 0.01 ETH + 0.003 proxy reserves each):
+  - Base Sepolia: 0xFf25f82b50c0164D815D0d18037afab502D2b926 (deploy 0xc954e084...)
+  - Ethereum Sepolia: 0x95Fd0764a2f75387F35c8eEAB409aa1410b19b2d (deploy 0x089f04fe...)
+  - Unichain Sepolia: 0x68A10a67C79593d6e4a69AB7Abc5762380Dc5560 (deploy 0xf95daa79...)
+  (Cross-chain address coincidences with Lasna contracts are deployer-nonce artifacts, harmless.)
+- Faucet conversions so far: 3 x 0.05 Sepolia ETH -> ~15.75 lREACT total. Watch the
+  deployer Lasna balance during heavy test cycles; it drains fast.
