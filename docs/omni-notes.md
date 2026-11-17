@@ -26,8 +26,13 @@ Sources (primary):
 - Unichain Sepolia (1301): 0x775c9B990ADe401060B78D0e98684eEf8d2466C1
 - Destination-side validation: msg.sender must be the chain's callback proxy AND the original sender must be Reactive Signer.
 
-## Still to confirm at M1 (do not let code depend on these until confirmed)
-- Exact Omni system-contract API names for subscribe / callback request (Claude's doc names SYSTEM.subscribe(...), SYSTEM.requestCallbackV_1_0(...) with CallbackConfiguration_V_1_0, and react(...) external onlySystem taking LogRecord memory — plausible but not yet read verbatim in docs text).
+## Omni API — CONFIRMED verbatim from https://dev.reactive.network/ (Getting Started, read 2026-11-17)
+- Drop the vm modifier; subscribe in the constructor via SYSTEM.subscribe(chainId, contract, topic0, REACTIVE_IGNORE x3) with no if(!vm) guard.
+- react signature: function react(LogRecord memory log_) external onlySystem
+- Callbacks: SYSTEM.requestCallbackV_1_0(ISystemContract.CallbackConfiguration_V_1_0({chainId, recipient, gasLimit, payload}))
+- Struct CallbackConfiguration_V_1_0 { uint256 chainId; address recipient; uint64 gasLimit; bytes payload; }
+- SYSTEM = ISystemContract(payable(0x8888888888888888888888888888888888888888))
+Claude's API names were exact.
 - Faucet contract addresses and the Sepolia ETH -> lREACT rate under Omni (legacy page said 1 ETH -> 100 lREACT via 0x9b9BB25f1A81078C544C829c5EB7822d747Cf434 on Ethereum Sepolia / 0x2afaFD298b23b62760711756088F75B7409f5967 on Base Sepolia — re-verify).
 - Whether legacy vmOnly-style contracts still deploy/run on Lasna (docs say legacy is supported; only relevant as a fallback).
 
