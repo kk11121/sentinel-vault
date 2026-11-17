@@ -5,8 +5,7 @@
 Sentinel Vault
 
 ## Tagline (one line)
-An AI-guarded vault where the model's key can never touch the funds —
-and a Reactive contract, not a server, does the stopping.
+An off-chain model decides; a Reactive contract enforces. The model's key can post verdicts and nothing else — it cannot move, unfreeze, or reconfigure the vaults.
 
 ## Description (long form, for the submission page)
 See README.md — reuse its "Why this design" and "How it works"
@@ -23,12 +22,12 @@ sections verbatim. Key claims, all verifiable on-chain:
   including the model's false alarms (eval/RESULTS.md).
 
 ## Contract addresses
-- VerdictRegistry — Base Sepolia: 0xEe60c9776CAc32bda21ED7e6cAD1497717B28A12
-- SentinelReactive (RSC) — Lasna: 0x946181Feb969e29cA42aF5dB0b17325CA524262e
-- GuardedVault — Base Sepolia: 0xFf25f82b50c0164D815D0d18037afab502D2b926
-- GuardedVault — Ethereum Sepolia: 0x95Fd0764a2f75387F35c8eEAB409aa1410b19b2d
-- GuardedVault — Unichain Sepolia: 0x68A10a67C79593d6e4a69AB7Abc5762380Dc5560
-- modelHash: 0xc65a9db604e61be432fe2822e9cbcdfd97f75698593372377b1987dc5b5f6bb7
+- VerdictRegistry — Base Sepolia: 0x0e55C8F84F44336b766Af8469b74d5163abB7F32
+- SentinelReactive (RSC) — Lasna: 0xeaE20eccD1F308CaB3e8a4c99e588D8CC21a1ff8
+- GuardedVault — Base Sepolia: 0xAf17d1e294c35cA4eFE35c58B201D6F95Aef3DE4
+- GuardedVault — Ethereum Sepolia: 0x0C0c54778431652a2c6b92E088fB02335d395BED
+- GuardedVault — Unichain Sepolia: 0x95Fd0764a2f75387F35c8eEAB409aa1410b19b2d
+- modelHash: 0x0dfa7cb105d6c64d39889abc4926fc514b0cccf075c9e3071ddff893fcfd45c5 (model iforest-3)
 
 ## Transaction links (full loop evidence)
 Use the "Proof" section of README.md (request -> verdict -> execute /
