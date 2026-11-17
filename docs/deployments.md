@@ -129,3 +129,36 @@ NOT a clean slate. Wait out the window or expect one escalation.
   -> all 3 vaults frozen (verified); execute(7) reverts VaultFrozen.
   Replay of the verdict: severity/score/featuresHash/modelHash all MATCH.
 - Post-run: unfreeze x3, wait restored to 180 s.
+
+## v3 stack (post-review redeploy, 2026-11-18) — IN PROGRESS
+Review fixes deployed: owner-only requests, instant cap, recovery key,
+registry v2 (chainId + duplicate rejection), RSC v4 (request watching +
+pace freeze). Config on all vaults: wait 180 s, threshold 0.004 ETH,
+instant cap 0.008 ETH / 3600 s.
+- VerdictRegistry v2 — Base Sepolia: 0x0e55C8F84F44336b766Af8469b74d5163abB7F32
+  deploy tx 0x3556dc5fdcaaae3db85681303d6c196fc4727e8573b2fefdd703bdae6f789682
+- SentinelReactive v4 — Lasna: 0xeaE20eccD1F308CaB3e8a4c99e588D8CC21a1ff8
+  deploy tx 0x794d047dd3c3648c1979d28c6c79a8ea144c1e007c728309f42d3272ebe3d662
+  (1.5 lREACT balance; reserves 1.0 lREACT via depositTo tx
+  0x98e8baa887c8772c0351091449a10d06f8b7b568ead09453be2ec85e4f9eb859, verified)
+- GuardedVault v3 — Ethereum Sepolia: 0x0C0c54778431652a2c6b92E088fB02335d395BED
+  deploy tx 0x3820dc08247481abf11dd5209114671c058ee43d52e5816e31c3d2936194e4ec (funded 0.008 ETH)
+- GuardedVault v3 — Unichain Sepolia: 0x95Fd0764a2f75387F35c8eEAB409aa1410b19b2d
+  deploy tx 0xedd3458c9bc19281fdef5079e4816ebc3f2a5b7b3dd7ff401c017046551cfaae (funded 0.012 ETH)
+- watchVault txs (Lasna): Sepolia 0x43f8ce7b7be601f0ee63589040979573f4fef004acab3e33d1ae4bfbd9c2093c,
+  Unichain 0x46016a8c3bd10679fba2433510faec0078eb4542fbda3ea4c5addd2b23c00a4d
+- Recovery key funded 0.0015 ETH on each chain (Sepolia tx
+  0x01ebaad311ca2c72a52549339fa49f440e5fd3a5f8562970105ab9e8fbbcdc50, Unichain
+  0x695178b22501706d31c5d297cc50e9e83f63ed5758a99e41cb5cd4964eef6dda, Base
+  0xcc26fe926d3837463a8b8532a7e244d72bf9d240a4602e069b3621030c6382de)
+- Bridge 0.03 ETH Sepolia->Base for the Base vault funding: L1 tx
+  0x943f812e92de73849a3e1b47f205534fb1908b219527261fe09bcfe93ba06944 (crediting pending)
+- CORRECTION to the M2-era notes: the system contract address 0x8888...8888
+  has NO code on the destination chains, so the "proxy reserves" depositTo
+  calls there were plain transfers to that address. Destination callback
+  fees are in fact paid from each vault's own balance via OmniCallback.pay()
+  (the proxy calls pay(amount) on the recipient). Vault balances are what
+  matter; the two 0.002 ETH transfers made today (Sepolia tx
+  0xac86757d76a8d7b3395504b072e1bce2a38f881c630cdb3b251d45aacc0cd743, Unichain
+  0x47519a8a35d3e63ba45e5ee9253f780c758c449835b7166a80b711a2ec7e2bca) repeat
+  the old mistake and are documented here so nobody models on them.
