@@ -30,3 +30,11 @@ Sources (primary):
 - Exact Omni system-contract API names for subscribe / callback request (Claude's doc names SYSTEM.subscribe(...), SYSTEM.requestCallbackV_1_0(...) with CallbackConfiguration_V_1_0, and react(...) external onlySystem taking LogRecord memory — plausible but not yet read verbatim in docs text).
 - Faucet contract addresses and the Sepolia ETH -> lREACT rate under Omni (legacy page said 1 ETH -> 100 lREACT via 0x9b9BB25f1A81078C544C829c5EB7822d747Cf434 on Ethereum Sepolia / 0x2afaFD298b23b62760711756088F75B7409f5967 on Base Sepolia — re-verify).
 - Whether legacy vmOnly-style contracts still deploy/run on Lasna (docs say legacy is supported; only relevant as a fallback).
+
+## Working RPC endpoints from Muse's VM (checked 2026-11-17 via cast)
+- Ethereum Sepolia: https://ethereum-sepolia-rpc.publicnode.com (chain 11155111)
+- Base Sepolia: https://sepolia.base.org (chain 84532)
+- Unichain Sepolia: https://sepolia.unichain.org (chain 1301)
+- Lasna: https://lasna-rpc.rnk.dev (chain 5318007; legacy hostname, live)
+- Quirk: curl gets empty replies from several public RPCs from this VM while cast works — use cast for RPC checks.
+- All three project addresses hold 0 on every chain as of 2026-11-17 (fresh keys).
