@@ -34,3 +34,23 @@ M1 loop test:
 - Note: first depositTo for PingReactive2 did not credit reserves (cause unclear);
   a second depositTo (0.3 lREACT, tx 0xce6f5337...) credited correctly. Always verify
   reserves after depositTo.
+
+## M1 COMPLETE (2026-11-17) — final stack
+Root cause of the dead loop: REACTIVE_IGNORE. The docs name the wildcard but
+never print its value. 0xFFFF...FF is recorded by the system contract yet never
+matches in validator delivery. The value every delivered subscription uses is
+0xa65f96fc951c35ead38878e0f0b7a3c744a6f5ccc1476b313353ce31712313ad (found by
+byte-comparing live subscription events). Fixed in OmniReactive.sol; a Lasna-
+local Ping test then fired react() within ~55 s.
+
+- SentinelReactive v2 — Lasna: 0xCdbB1ca6008Fc57Bf10C0f4e4e600b987f6AAFfD
+  deploy tx 0xa61533835076de370eef62bad3056aabba0dc0cfc2aeb2f850febdff2d22fce1 (1.5 lREACT balance + 1.0 reserves)
+  setVault tx 0xa3fc447159a4d92315e7e64b69f93dae4a0f221d189fc52ca34932c4a9b88565
+- GuardedVault v2 — Ethereum Sepolia: 0xF07bC9b4A3418A9B54aD8145C4cBe2f268BFD55A
+  deploy tx 0xe7a404b1e50b5bc22a531452d5a1746fc11b5ceb63d00af3ac486b854be96654 (0.01 ETH + 0.005 proxy reserves)
+- Acceptance run:
+  1. verdict #5 HIGH (Base) tx 0xdb7859e62dcfb39886b8379ee8717be8597fcb2e48ca08e8c6da8fb2ff194ce3 — Success
+  2. Frozen delivered on Sepolia: tx 0xd2e557978361c86538974c279650b8af5272e7dbba2c9245ab9e7ef2316072d4 — frozen()==true ~50 s after the verdict
+  3. Negative test on the final vault (attacker direct freeze): tx 0x29d7d0639cc3c018570f4f6b5794ef0732ef22cffffa04b63c6d143458305ae8 — FAILED as expected
+- Old v1 contracts (RSC 0x68A10a..., vault 0x14B661...) are superseded; their
+  subscriptions used the broken wildcard and will never fire.

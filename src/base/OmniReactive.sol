@@ -10,7 +10,13 @@ import { IReactive } from "../interfaces/IReactive.sol";
 ///         here directly: SYSTEM handle, onlySystem guard, payer behaviour.
 abstract contract OmniReactive is IReactive {
     ISystemContract internal constant SYSTEM = ISystemContract(payable(0x8888888888888888888888888888888888888888));
-    uint256 internal constant REACTIVE_IGNORE = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF;
+    // Wildcard sentinel as actually used by working on-chain subscriptions.
+    // NOTE: the docs table calls the wildcard "REACTIVE_IGNORE" without giving
+    // its value; 0xFFFF...FF is recorded by the system contract but never
+    // matches in validator delivery (verified empirically 2026-11-17 by
+    // byte-comparing live subscription events). The value below is the one
+    // every delivered subscription on Lasna uses.
+    uint256 internal constant REACTIVE_IGNORE = 0xa65f96fc951c35ead38878e0f0b7a3c744a6f5ccc1476b313353ce31712313ad;
 
     error NotAuthorized();
 
