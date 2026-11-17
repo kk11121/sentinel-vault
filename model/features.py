@@ -8,7 +8,7 @@ A *profile* encodes what "normal" looks like for a vault (learned from
 its history; the shipped profiles are documented in MODEL_CARD.md).
 Event-dependent features come from the live observed state.
 
-Feature vector (6):
+Feature vector (8):
   f1 amount_ratio   log1p(amount / profile.median_amount)
   f2 first_seen     1.0 if destination never observed (and not a profile
                     known destination), else 0.0
@@ -19,6 +19,16 @@ Feature vector (6):
   f5 sum_1h_ratio   log1p(sum of amounts in the last hour /
                     profile.median_amount)
   f6 balance_ratio  amount / vault balance just before the request
+  f7 count_24h      withdrawals in the last 24 hours, capped at 20, / 20
+  f8 sum_24h_ratio  log1p(sum of amounts in the last 24 hours /
+                    profile.median_amount)
+
+f7/f8 were added after the v2 evaluation exposed a blind spot: a slow
+drain to an already-known address at a 10-minute pace saturates the
+1-hour window features (they plateau as the window slides) and scored
+LOW on every step. The 24-hour aggregates keep growing for a full day.
+Models v1/v2 were trained on f1-f6 only; their trees never reference
+f7/f8, so they score identically from the 8-wide vector.
 """
 import math
 from statistics import median
@@ -30,6 +40,8 @@ FEATURE_NAMES = [
     "count_1h",
     "sum_1h_ratio",
     "balance_ratio",
+    "count_24h",
+    "sum_24h_ratio",
 ]
 
 # Shipped reference profiles (see MODEL_CARD.md). Amounts in wei-scale
@@ -71,7 +83,11 @@ def compute_features(profile, history, to, amount, timestamp, balance):
 
     f6 = amount / balance if balance > 0 else 1.0
 
-    return [f1, f2, f3, f4, f5, f6]
+    last_day = [h for h in history if timestamp - h[0] < 86_400]
+    f7 = min(len(last_day), 20) / 20.0
+    f8 = math.log1p(sum(h[2] for h in last_day) / med_amt)
+
+    return [f1, f2, f3, f4, f5, f6, f7, f8]
 
 
 def features_hash(features, amount, to, first_seen):
