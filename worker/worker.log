@@ -1,0 +1,5 @@
+[worker] rule-v1 up; writer=0xD4bdEb625fC4f87b9E126d1aC24b578dF9B9c307
+[worker] poll error chain 11155111: {'code': -32602, 'message': 'block range extends beyond current head block: requested 12154040, head 12154039'}
+[worker] chain 84532 req 3 to=0x831Ae1004584C3DEfa15aC774C64d95e840131Dc amount=6000000000000000 first_seen=False -> LOW (100) verdict tx b293d32564523c6934634b414bfd00c08a9811de105bce45b91cf0c7ae267794
+[worker] chain 84532 req 4 to=0x63B63f96b2936291da51a43E3CDc134622175672 amount=6000000000000000 first_seen=True -> MEDIUM (600) verdict tx 015b91617be393bb0fee65c4d7b8654712cb568ac9129718922026c8f841f3a5
+[worker] chain 84532 req 5 to=0x000000000000000000000000000000000000dEaD amount=6000000000000000 first_seen=True -> MEDIUM (600) verdict tx 10ee24497ed134e82b556b4811b30e37a2d4e81830eda8fd1724ec6508688377

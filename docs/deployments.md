@@ -66,3 +66,27 @@ local Ping test then fired react() within ~55 s.
   (Cross-chain address coincidences with Lasna contracts are deployer-nonce artifacts, harmless.)
 - Faucet conversions so far: 3 x 0.05 Sepolia ETH -> ~15.75 lREACT total. Watch the
   deployer Lasna balance during heavy test cycles; it drains fast.
+
+## M2 LIVE VERIFICATION (2026-11-17) — all cases PASS on the M2 stack
+Worker: worker/worker.py rule-v1 (dummy rule; verdictWriter key; verdict for
+every request). Note: worker lookback is 2000 blocks at startup — Base Sepolia
+advances ~2000 blocks in ~35 min, so stale requests fall out of the window;
+the worker is a live watcher, not a catch-up indexer. (A long detour blaming
+the Base RPC log index was actually an arithmetic slip: 0x392d7db = 59955163.)
+
+- Case A (normal, fail-open): Base vault req 3, 0.006 ETH to owner (known)
+  request tx 0x12042758c20a2576a522c3a407a4a8c314f068ba20ad1d06dd08f17476fd723e
+  LOW verdict tx 0xb293d32564523c6934634b414bfd00c08a9811de105bce45b91cf0c7ae267794
+  executed after wait, tx 0x85f28dcff94609345aa0320f1ae4ba4a25a5a1d16f548973d08a3b8dec5a28ad
+  (One earlier execute attempt failed silently at gas estimation — transient
+  RPC issue suspected, cause not pinned down; the retry succeeded.)
+- Case B (veto): Base vault req 4, 0.006 ETH to first-seen attacker address
+  request tx 0xfe1728e39a9ec4f705b31a3a7eeb83edd461c1e5f35c8408abb9c6fc1a47e3b0
+  MEDIUM verdict tx 0x015b91617be393bb0fee65c4d7b8654712cb568ac9129718922026c8f841f3a5
+  -> withdrawals(4).vetoed == true via RSC callback; execute reverts Vetoed.
+- Case C (escalation): Base vault req 5, 0.006 ETH to fresh 0x...dEaD
+  request tx 0xcddd23b45eeb463476be32c75d39b10737b79e052a10a46535ffc524e1ce755a
+  MEDIUM verdict tx 0x10ee24497ed134e82b556b4811b30e37a2d4e81830eda8fd1724ec6508688377
+  -> second MEDIUM within the window escalated: frozen()==true verified on
+     Base, Ethereum Sepolia AND Unichain Sepolia vaults. Cleanup: owner
+     unfreeze x3, all Success.
