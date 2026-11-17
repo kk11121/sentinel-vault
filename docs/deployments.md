@@ -110,3 +110,22 @@ the Base RPC log index was actually an arithmetic slip: 0x392d7db = 59955163.)
 - Eval (eval/RESULTS.md): model flags more normal traffic than the rule
   (3.8% vs 0.8%) and false-HIGHs a 3x-median legit transfer, but is the
   only method that escalates a small-amount barrage to HIGH. Published as-is.
+
+## DEMO RUN (2026-11-17, filmed for the submission video)
+Base vault topped up to 0.020 ETH; wait set to 60 s for filming (restored
+to 180 s afterwards). Worker restarted just before: its Base history was
+empty (req 5 outside the lookback), but its Sepolia req-1 re-judgment
+posted a 2nd MEDIUM within the on-chain escalation window and froze all
+vaults once — owner unfroze x3 before filming. LESSON: the RSC's
+lastMediumAt persists on-chain; a worker restart inside the window is
+NOT a clean slate. Wait out the window or expect one escalation.
+- Normal: Base req 6, 0.008 ETH to owner
+  request 0xa71fab2b85115a32e79e028a901b3012f754e123fb62b631bd37f9774cf3d088
+  model LOW 562, verdict 0xbc136b1599839e511481405f64a8a8ccf2b34700b0182d831e0f2e10e93aa6ba
+  executed 0x627e22b570ae0df4c4f0ba4cf0cdd589e2d0c2dc918d8f1907875919f0303609
+- Attack: Base req 7, 0.008 ETH to first-seen attacker address
+  request 0x86cc98e93af0e2a642c5a888033147a9cdaf59538a1322b83f3debaeb605d72f
+  model HIGH 728, verdict 0x760a60568090c4f84568c2dd8d315e9170d6ebda73a3bb877756d25163ec699e
+  -> all 3 vaults frozen (verified); execute(7) reverts VaultFrozen.
+  Replay of the verdict: severity/score/featuresHash/modelHash all MATCH.
+- Post-run: unfreeze x3, wait restored to 180 s.
