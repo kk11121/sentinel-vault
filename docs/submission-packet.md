@@ -36,7 +36,7 @@ veto / freeze, plus the failed attacker direct-freeze tx).
 
 ## Demo video
 2-3 min, English subtitles, no owner voice. Script: docs/demo-runbook.md.
-[URL to fill after upload]
+Local file ready: video/demo.mp4 (2m11s, 1280x720, no audio, English captions burned in). Upload to YouTube (unlisted) or DoraHacks and paste the URL here.
 
 ## Repo
 [GitHub URL to fill after the owner creates/pushes — public, MIT]
