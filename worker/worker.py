@@ -43,12 +43,46 @@ RPCS = {
     11155111: "https://ethereum-sepolia-rpc.publicnode.com",
     1301: "https://sepolia.unichain.org",
 }
+# Addresses of the current deployment live in deployments.json at the
+# repo root (written by the deploy step) so the worker, the replay tool
+# and the README can never drift onto a stale stack. The literals below
+# are the pre-review (v2) stack, used only if the file is missing.
 REGISTRY = "0xEe60c9776CAc32bda21ED7e6cAD1497717B28A12"
 VAULTS = {
     84532: "0xFf25f82b50c0164D815D0d18037afab502D2b926",
     11155111: "0x95Fd0764a2f75387F35c8eEAB409aa1410b19b2d",
     1301: "0x68A10a67C79593d6e4a69AB7Abc5762380Dc5560",
 }
+RSC = None
+
+
+def load_deployments():
+    global REGISTRY, VAULTS, RSC
+    path = os.path.join(ROOT, "deployments.json")
+    if not os.path.exists(path):
+        return
+    import json
+
+    with open(path) as f:
+        d = json.load(f)
+    REGISTRY = Web3.to_checksum_address(d["registry"])
+    VAULTS = {int(cid): Web3.to_checksum_address(a) for cid, a in d["vaults"].items()}
+    RSC = d.get("rsc")
+
+
+def load_known_destinations():
+    """Operator addresses for the first_seen feature: the committed list
+    (worker/known_destinations.json) plus the vault addresses."""
+    import json
+
+    with open(os.path.join(ROOT, "worker", "known_destinations.json")) as f:
+        entries = json.load(f)["addresses"]
+    addrs = [Web3.to_checksum_address(e["address"]) for e in entries]
+    addrs += [Web3.to_checksum_address(v) for v in VAULTS.values()]
+    return addrs
+
+
+load_deployments()
 SEVERITY = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
 
 VAULT_ABI = [{
@@ -63,20 +97,34 @@ VAULT_ABI = [{
     "name": "WithdrawalRequested",
     "type": "event",
 }]
-REGISTRY_ABI = [{
-    "inputs": [
-        {"name": "requestId_", "type": "uint256"},
-        {"name": "vault_", "type": "address"},
-        {"name": "severity_", "type": "uint8"},
-        {"name": "score_", "type": "uint256"},
-        {"name": "featuresHash_", "type": "bytes32"},
-        {"name": "modelHash_", "type": "bytes32"},
-    ],
-    "name": "postVerdict",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function",
-}]
+REGISTRY_ABI = [
+    {
+        "inputs": [
+            {"name": "chainId_", "type": "uint256"},
+            {"name": "vault_", "type": "address"},
+            {"name": "requestId_", "type": "uint256"},
+            {"name": "severity_", "type": "uint8"},
+            {"name": "score_", "type": "uint256"},
+            {"name": "featuresHash_", "type": "bytes32"},
+            {"name": "modelHash_", "type": "bytes32"},
+        ],
+        "name": "postVerdict",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function",
+    },
+    {
+        "inputs": [
+            {"name": "chainId_", "type": "uint256"},
+            {"name": "vault_", "type": "address"},
+            {"name": "requestId_", "type": "uint256"},
+        ],
+        "name": "hasVerdict",
+        "outputs": [{"name": "", "type": "bool"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+]
 
 
 def main():
@@ -91,20 +139,17 @@ def main():
         for cid, addr in VAULTS.items()
     }
     # Runtime profile: the trained daily-small personality, with the
-    # operator's own addresses as known destinations.
+    # operator's own addresses as known destinations (committed list +
+    # vault addresses — see worker/known_destinations.json).
     profile = dict(PROFILES["daily-small"])
-    profile["known_destinations"] = [
-        Web3.to_checksum_address(ENV["DEPLOYER_OWNER_ADDRESS"]),
-        Web3.to_checksum_address(ENV["VERDICT_WRITER_ADDRESS"]),
-        *[Web3.to_checksum_address(v) for v in VAULTS.values()],
-    ]
+    profile["known_destinations"] = load_known_destinations()
     last_block = {cid: connections[cid].eth.block_number - 2000 for cid in RPCS}
     state = {"nonce": base.eth.get_transaction_count(writer.address)}
     history = {cid: [] for cid in RPCS}  # (timestamp, to, amount_eth)
     handled = set()
     print(
-        f"[worker] model-v1 up; writer={writer.address} "
-        f"modelHash=0x{mhash.hex()} thresholds={model.thresholds}",
+        f"[worker] {model.data.get('version', 'iforest')} up; writer={writer.address} "
+        f"registry={REGISTRY} modelHash=0x{mhash.hex()} thresholds={model.thresholds}",
         flush=True,
     )
     while True:
@@ -143,9 +188,18 @@ def main():
                 level, s = model.severity(feats)
                 fh = features_hash(feats, a["amount"], a["to"], feats[1] > 0.5)
                 history[cid].append((block["timestamp"], a["to"], amount_eth))
+                # The registry accepts exactly one verdict per request and
+                # rejects duplicates on-chain; check first so a restarted
+                # worker re-scanning old blocks stays a no-op.
+                try:
+                    if registry.functions.hasVerdict(cid, VAULTS[cid], a["requestId"]).call():
+                        print(f"[worker] chain {cid} req {a['requestId']} already judged, skip", flush=True)
+                        continue
+                except Exception as e:  # noqa: BLE001
+                    print(f"[worker] hasVerdict check failed for {key}: {e}", flush=True)
                 try:
                     tx = registry.functions.postVerdict(
-                        a["requestId"], VAULTS[cid], SEVERITY[level], s, fh, mhash
+                        cid, VAULTS[cid], a["requestId"], SEVERITY[level], s, fh, mhash
                     ).build_transaction({
                         "from": writer.address,
                         "nonce": state["nonce"],

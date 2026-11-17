@@ -1,0 +1,2 @@
+# modelHash is keccak256 of the exact file bytes: never let git rewrite line endings in model files
+model/*.json -text

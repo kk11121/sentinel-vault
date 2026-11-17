@@ -22,13 +22,14 @@ from web3 import Web3
 
 from model.features import PROFILES, compute_features, features_hash
 from model.scorer import Model, model_hash
-from worker.worker import ENV, REGISTRY, RPCS, VAULTS, VAULT_ABI
+from worker.worker import REGISTRY, RPCS, VAULTS, VAULT_ABI, load_known_destinations
 
 VERDICT_ABI = [{
     "anonymous": False,
     "inputs": [
-        {"indexed": True, "name": "requestId", "type": "uint256"},
+        {"indexed": True, "name": "chainId", "type": "uint256"},
         {"indexed": True, "name": "vault", "type": "address"},
+        {"indexed": True, "name": "requestId", "type": "uint256"},
         {"indexed": False, "name": "severity", "type": "uint8"},
         {"indexed": False, "name": "score", "type": "uint256"},
         {"indexed": False, "name": "featuresHash", "type": "bytes32"},
@@ -79,7 +80,8 @@ def main():
     verdict = next(
         (l for l in verdicts
          if l["args"]["requestId"] == args.request_id
-         and l["args"]["vault"] == vault_addr),
+         and l["args"]["vault"] == vault_addr
+         and l["args"]["chainId"] == cid),
         None,
     )
     if verdict is None:
@@ -87,11 +89,7 @@ def main():
         return 1
 
     profile = dict(PROFILES["daily-small"])
-    profile["known_destinations"] = [
-        Web3.to_checksum_address(ENV["DEPLOYER_OWNER_ADDRESS"]),
-        Web3.to_checksum_address(ENV["VERDICT_WRITER_ADDRESS"]),
-        *[Web3.to_checksum_address(v) for v in VAULTS.values()],
-    ]
+    profile["known_destinations"] = load_known_destinations()
     history = []
     for l in reqs:
         if l["blockNumber"] >= target["blockNumber"]:
