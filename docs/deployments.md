@@ -90,3 +90,23 @@ the Base RPC log index was actually an arithmetic slip: 0x392d7db = 59955163.)
   -> second MEDIUM within the window escalated: frozen()==true verified on
      Base, Ethereum Sepolia AND Unichain Sepolia vaults. Cleanup: owner
      unfreeze x3, all Success.
+
+## M3 MODEL LIVE (2026-11-17)
+- Model: Isolation Forest exported to model/model.json (139 KB, no pickle),
+  modelHash 0xc65a9db604e61be432fe2822e9cbcdfd97f75698593372377b1987dc5b5f6bb7,
+  thresholds MEDIUM>=598 / HIGH>=655. Pure-python scorer parity vs sklearn:
+  Spearman -0.9999 on held-out data.
+- Worker v2 (model) posted a HIGH verdict for the stale Base req 5 on its
+  startup rescan (tx 0x08b7a368...) — RSC froze all vaults; owner unfroze x3.
+  (Worker restart re-judges requests still inside its 2000-block lookback;
+  handled-set is in-memory. Noted for the demo runbook.)
+- M3 acceptance run: Sepolia vault req 1 (0.004 ETH to owner,
+  tx 0x47f65beb7a14aa3b4e863666740c2d5043b5d6b2af6e53126f5c253d5325b4e0)
+  -> model verdict MEDIUM 603 (tx 0xbe2be1969291db2187c55d7d20ddb9a7d41717a15b05c6b5aeee75a51eabef77)
+  -> vetoed on-chain via RSC. balance_ratio 0.4 (tiny demo balance) drove
+  the score — documented in MODEL_CARD limitations.
+- Replay verified: scripts/replay.py --chain 11155111 --request-id 1
+  -> severity/score/featuresHash/modelHash all MATCH.
+- Eval (eval/RESULTS.md): model flags more normal traffic than the rule
+  (3.8% vs 0.8%) and false-HIGHs a 3x-median legit transfer, but is the
+  only method that escalates a small-amount barrage to HIGH. Published as-is.

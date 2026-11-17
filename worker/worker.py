@@ -1,24 +1,27 @@
 #!/usr/bin/env python3
-"""Sentinel Vault worker — M2 dummy-rule version.
+"""Sentinel Vault worker — M3 model version.
 
-Watches WithdrawalRequested events on all GuardedVaults, scores each
-request with a fixed rule (M3 replaces this with the real model), and
-posts a verdict for EVERY request to the VerdictRegistry on Base Sepolia
-using the verdictWriter key. The worker can only judge; it holds no power
-over funds.
+Watches WithdrawalRequested events on all GuardedVaults, computes the
+shared feature vector (model/features.py) from live chain state, scores
+it with the exported Isolation Forest (model/model.json, pure-python
+scorer — no pickle), and posts a verdict for EVERY request to the
+VerdictRegistry on Base Sepolia using the verdictWriter key.
 
-Rule v1:
-  - destination is a known address (owner/keys/vaults) -> LOW
-  - amount >= HIGH_AMOUNT                              -> HIGH
-  - first-seen destination                             -> MEDIUM
-  - otherwise                                          -> LOW
+The worker can only judge; its key holds no power over funds. Verdicts
+carry featuresHash + modelHash so anyone can replay them
+(scripts/replay.py).
 """
 import os
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from web3 import Web3
 from eth_account import Account
+
+from model.features import PROFILES, compute_features, features_hash
+from model.scorer import Model, model_hash
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -46,12 +49,6 @@ VAULTS = {
     11155111: "0x95Fd0764a2f75387F35c8eEAB409aa1410b19b2d",
     1301: "0x68A10a67C79593d6e4a69AB7Abc5762380Dc5560",
 }
-KNOWN = {
-    Web3.to_checksum_address(ENV["DEPLOYER_OWNER_ADDRESS"]),
-    Web3.to_checksum_address(ENV["VERDICT_WRITER_ADDRESS"]),
-} | {Web3.to_checksum_address(v) for v in VAULTS.values()}
-HIGH_AMOUNT = Web3.to_wei(0.008, "ether")
-MODEL_HASH = Web3.keccak(text="rule-worker-v1")
 SEVERITY = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
 
 VAULT_ABI = [{
@@ -82,26 +79,10 @@ REGISTRY_ABI = [{
 }]
 
 
-def score(chain_id, vault, request_id, to, amount, seen_destinations):
-    first_seen = to not in seen_destinations and to not in KNOWN
-    if to in KNOWN:
-        level, s = "LOW", 100
-    elif amount >= HIGH_AMOUNT:
-        level, s = "HIGH", 900
-    elif first_seen:
-        level, s = "MEDIUM", 600
-    else:
-        level, s = "LOW", 100
-    features_hash = Web3.keccak(
-        amount.to_bytes(32, "big")
-        + bytes.fromhex(to[2:].rjust(40, "0"))
-        + (b"\x01" if first_seen else b"\x00")
-    )
-    return level, s, features_hash, first_seen
-
-
 def main():
     writer = Account.from_key(ENV["VERDICT_WRITER_PRIVATE_KEY"])
+    model = Model.load()
+    mhash = model_hash()
     base = Web3(Web3.HTTPProvider(RPCS[84532]))
     registry = base.eth.contract(address=REGISTRY, abi=REGISTRY_ABI)
     connections = {cid: Web3(Web3.HTTPProvider(url)) for cid, url in RPCS.items()}
@@ -109,16 +90,28 @@ def main():
         cid: connections[cid].eth.contract(address=addr, abi=VAULT_ABI)
         for cid, addr in VAULTS.items()
     }
+    # Runtime profile: the trained daily-small personality, with the
+    # operator's own addresses as known destinations.
+    profile = dict(PROFILES["daily-small"])
+    profile["known_destinations"] = [
+        Web3.to_checksum_address(ENV["DEPLOYER_OWNER_ADDRESS"]),
+        Web3.to_checksum_address(ENV["VERDICT_WRITER_ADDRESS"]),
+        *[Web3.to_checksum_address(v) for v in VAULTS.values()],
+    ]
     last_block = {cid: connections[cid].eth.block_number - 2000 for cid in RPCS}
     state = {"nonce": base.eth.get_transaction_count(writer.address)}
-    seen_destinations = set()
+    history = {cid: [] for cid in RPCS}  # (timestamp, to, amount_eth)
     handled = set()
-    print(f"[worker] rule-v1 up; writer={writer.address}", flush=True)
+    print(
+        f"[worker] model-v1 up; writer={writer.address} "
+        f"modelHash=0x{mhash.hex()} thresholds={model.thresholds}",
+        flush=True,
+    )
     while True:
         for cid, vault in vault_contracts.items():
             w3 = connections[cid]
             try:
-                head = w3.eth.block_number
+                head = w3.eth.block_number - 2  # margin against RPC head skew
                 if head <= last_block[cid]:
                     continue
                 logs = []
@@ -139,13 +132,20 @@ def main():
                     continue
                 handled.add(key)
                 a = log["args"]
-                level, s, fh, first_seen = score(
-                    cid, VAULTS[cid], a["requestId"], a["to"], a["amount"], seen_destinations
+                block = w3.eth.get_block(log["blockNumber"])
+                amount_eth = a["amount"] / 1e18
+                balance_eth = w3.eth.get_balance(
+                    VAULTS[cid], block_identifier=log["blockNumber"]
+                ) / 1e18
+                feats = compute_features(
+                    profile, history[cid], a["to"], amount_eth, block["timestamp"], balance_eth
                 )
-                seen_destinations.add(a["to"])
+                level, s = model.severity(feats)
+                fh = features_hash(feats, a["amount"], a["to"], feats[1] > 0.5)
+                history[cid].append((block["timestamp"], a["to"], amount_eth))
                 try:
                     tx = registry.functions.postVerdict(
-                        a["requestId"], VAULTS[cid], SEVERITY[level], s, fh, MODEL_HASH
+                        a["requestId"], VAULTS[cid], SEVERITY[level], s, fh, mhash
                     ).build_transaction({
                         "from": writer.address,
                         "nonce": state["nonce"],
@@ -158,8 +158,8 @@ def main():
                     state["nonce"] += 1
                     print(
                         f"[worker] chain {cid} req {a['requestId']} to={a['to']} "
-                        f"amount={a['amount']} first_seen={first_seen} -> {level} ({s}) "
-                        f"verdict tx {h.hex()}",
+                        f"amount={a['amount']} feats={[round(f, 2) for f in feats]} "
+                        f"-> {level} ({s}) verdict tx {h.hex()}",
                         flush=True,
                     )
                 except Exception as e:  # noqa: BLE001
