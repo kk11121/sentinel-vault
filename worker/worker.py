@@ -28,7 +28,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def load_env():
     env = {}
-    with open(os.path.join(ROOT, ".env")) as f:
+    path = os.path.join(ROOT, ".env")
+    if not os.path.exists(path):
+        # Read-only use (e.g. scripts/replay.py from a clean clone) needs
+        # no keys; only the live worker's verdict posting does.
+        return env
+    with open(path) as f:
         for line in f:
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
