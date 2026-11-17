@@ -17,3 +17,20 @@ M1 loop test:
   tx 0xde60764557b5f94495d8c1baae61a9152a37489d8679d0a710b0361796fc20a4 — status FAILED as expected.
 - Reactive reaction + callback freeze: PENDING as of 18:35 JST (waiting on origin-chain
   indexing/finality on Reactive's side; subscription, topic0, funding, and zero debt all verified).
+
+## Reaction troubleshooting log (2026-11-17 evening)
+- Verdicts #2 (0xaf56e32d...), #3 (0x1b633f80...), #4 (0xc7dc864d...) also posted; no reaction yet.
+- Verified NOT the cause: subscription event registered on-chain (deploy receipts, correct
+  chainId/contract/topic0/REACTIVE_IGNORE format — byte-compared with working subscriptions);
+  topic0 matches the registry event; RSC balance 2 lREACT, reserves topped up via
+  SYSTEM.depositTo (RSC 1.0 lREACT), debt 0; network is live (28 trigger txs / 16 distinct
+  RSCs in the last ~5000 Lasna blocks, incl. Base Sepolia origins).
+- Isolation tests: PingReactive (constructor subscribe, Lasna-local Ping) and PingReactive2
+  (0x95Fd0764a2f75387F35c8eEAB409aa1410b19b2d; post-deploy arm() subscribe, reserves 0.3)
+  also show no react() invocation and no charges — delivery to NEW subscriptions appears
+  not to start immediately. Working hypothesis: validator-side subscription sync latency
+  with no backfill; events fired before sync are lost. A background watcher is polling
+  frozen()/count for ~30 min after verdict #4.
+- Note: first depositTo for PingReactive2 did not credit reserves (cause unclear);
+  a second depositTo (0.3 lREACT, tx 0xce6f5337...) credited correctly. Always verify
+  reserves after depositTo.
