@@ -287,11 +287,14 @@ means redeploying the stack and re-running the evidence above:
   toward the pace freeze. No duplicate delivery has been observed
   on this deployment; the failure direction is an early freeze,
   which is the safe direction.
-- **Worker delivery is best-effort within a run.** If posting a
-  verdict fails mid-run (gas, nonce, RPC), that request is only
-  re-examined when the worker restarts and rescans; until then the
-  withdrawal follows the fail-open path after its wait. The
-  registry's duplicate rejection makes restarts safe.
+- **Worker delivery depends on the worker process being alive.**
+  Posting failures inside a run are retried (the scan cursor never
+  advances past an unposted verdict, and a verdict counts only when
+  its receipt confirms), but if the process itself dies, verdicts
+  wait until it is restarted; it then rescans from the deployment
+  blocks and the registry's duplicate rejection makes that safe.
+  There is no supervisor daemon in this repo — the operator keeps
+  the process running during the event period.
 
 ## The model
 

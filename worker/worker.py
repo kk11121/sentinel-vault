@@ -10,6 +10,13 @@ VerdictRegistry on Base Sepolia using the verdictWriter key.
 The worker can only judge; its key holds no power over funds. Verdicts
 carry featuresHash + modelHash so anyone can replay them
 (scripts/replay.py).
+
+Delivery semantics: a verdict counts as delivered only when its
+transaction receipt confirms success. The per-chain scan cursor never
+advances past a request whose verdict is not yet posted; a failed
+posting is retried on later poll cycles (head-of-line, so feature
+order is preserved), and no single log's RPC failure can kill the
+process.
 """
 import os
 import sys
@@ -164,79 +171,126 @@ def main():
     state = {"nonce": base.eth.get_transaction_count(writer.address)}
     history = {cid: [] for cid in RPCS}  # (timestamp, to, amount_eth)
     handled = set()
+    # Verdict payloads are computed exactly once per request, from the
+    # history of strictly earlier requests, in log order — the same
+    # semantics scripts/replay.py reproduces. A request whose posting
+    # fails keeps its prepared payload here and is retried on later
+    # cycles; the scan cursor never advances past an unposted verdict,
+    # so a transient RPC/gas failure delays a verdict but never drops
+    # it (H1 fix from the second adversarial review, 2026-11-18; the
+    # previous loop advanced the cursor at fetch time and lost the
+    # verdict until the next process restart).
+    prepared = {}
+
+    def prepare(cid, log):
+        """Compute the verdict payload for one log and record the
+        request in history. Runs at most once per request."""
+        w3 = connections[cid]
+        a = log["args"]
+        block = w3.eth.get_block(log["blockNumber"])
+        amount_eth = a["amount"] / 1e18
+        balance_eth = w3.eth.get_balance(
+            VAULTS[cid], block_identifier=log["blockNumber"]
+        ) / 1e18
+        feats = compute_features(
+            profile, history[cid], a["to"], amount_eth, block["timestamp"], balance_eth
+        )
+        level, s = model.severity(feats)
+        fh = features_hash(feats, a["amount"], a["to"], feats[1] > 0.5)
+        history[cid].append((block["timestamp"], a["to"], amount_eth))
+        return level, s, fh, feats
+
+    def process(cid, log):
+        """Bring one request to a posted (or already-posted) verdict.
+
+        Returns True when the request is fully dealt with and the scan
+        cursor may advance past it; False to retry it on a later
+        cycle. Every exception is contained here, so one bad log can
+        neither kill the worker nor stall the other chains."""
+        key = (cid, log["args"]["requestId"])
+        if key in handled:
+            return True
+        try:
+            if key not in prepared:
+                prepared[key] = prepare(cid, log)
+            level, s, fh, feats = prepared[key]
+            a = log["args"]
+            # The registry accepts exactly one verdict per request and
+            # rejects duplicates on-chain; check first so re-scans and
+            # retries stay no-ops once a verdict has landed (including
+            # the case where a previous attempt's receipt wait timed
+            # out but the transaction later succeeded).
+            if registry.functions.hasVerdict(cid, VAULTS[cid], a["requestId"]).call():
+                print(f"[worker] chain {cid} req {a['requestId']} already judged, skip", flush=True)
+                handled.add(key)
+                prepared.pop(key, None)
+                return True
+            tx = registry.functions.postVerdict(
+                cid, VAULTS[cid], a["requestId"], SEVERITY[level], s, fh, mhash
+            ).build_transaction({
+                "from": writer.address,
+                "nonce": state["nonce"],
+                "gas": 200_000,
+                "maxFeePerGas": base.eth.gas_price * 2,
+                "maxPriorityFeePerGas": base.eth.gas_price,
+            })
+            signed = writer.sign_transaction(tx)
+            h = base.eth.send_raw_transaction(signed.raw_transaction)
+            state["nonce"] += 1
+            receipt = base.eth.wait_for_transaction_receipt(h, timeout=180)
+            if receipt["status"] != 1:
+                raise RuntimeError(f"verdict tx {h.hex()} reverted")
+            print(
+                f"[worker] chain {cid} req {a['requestId']} to={a['to']} "
+                f"amount={a['amount']} feats={[round(f, 2) for f in feats]} "
+                f"-> {level} ({s}) verdict tx {h.hex()}",
+                flush=True,
+            )
+            handled.add(key)
+            prepared.pop(key, None)
+            return True
+        except Exception as e:  # noqa: BLE001
+            state["nonce"] = base.eth.get_transaction_count(writer.address)
+            print(f"[worker] chain {cid} req {log['args']['requestId']} not posted, will retry: {e}", flush=True)
+            return False
+
     print(
         f"[worker] {model.data.get('version', 'iforest')} up; writer={writer.address} "
         f"registry={REGISTRY} modelHash=0x{mhash.hex()} thresholds={model.thresholds}",
         flush=True,
     )
     while True:
-        for cid, vault in vault_contracts.items():
-            w3 = connections[cid]
-            try:
-                head = w3.eth.block_number - 2  # margin against RPC head skew
-                if head <= last_block[cid]:
-                    continue
-                logs = []
-                start = last_block[cid] + 1
-                while start <= head:
-                    end = min(start + 49, head)
-                    logs += vault.events.WithdrawalRequested().get_logs(
-                        from_block=start, to_block=end
-                    )
-                    start = end + 1
-                last_block[cid] = head
-            except Exception as e:  # noqa: BLE001
-                print(f"[worker] poll error chain {cid}: {e}", flush=True)
-                continue
-            for log in logs:
-                key = (cid, log["args"]["requestId"])
-                if key in handled:
-                    continue
-                handled.add(key)
-                a = log["args"]
-                block = w3.eth.get_block(log["blockNumber"])
-                amount_eth = a["amount"] / 1e18
-                balance_eth = w3.eth.get_balance(
-                    VAULTS[cid], block_identifier=log["blockNumber"]
-                ) / 1e18
-                feats = compute_features(
-                    profile, history[cid], a["to"], amount_eth, block["timestamp"], balance_eth
-                )
-                level, s = model.severity(feats)
-                fh = features_hash(feats, a["amount"], a["to"], feats[1] > 0.5)
-                history[cid].append((block["timestamp"], a["to"], amount_eth))
-                # The registry accepts exactly one verdict per request and
-                # rejects duplicates on-chain; check first so a restarted
-                # worker re-scanning old blocks stays a no-op.
+        try:
+            for cid, vault in vault_contracts.items():
+                w3 = connections[cid]
                 try:
-                    if registry.functions.hasVerdict(cid, VAULTS[cid], a["requestId"]).call():
-                        print(f"[worker] chain {cid} req {a['requestId']} already judged, skip", flush=True)
+                    head = w3.eth.block_number - 2  # margin against RPC head skew
+                    if head <= last_block[cid]:
                         continue
+                    logs = []
+                    start = last_block[cid] + 1
+                    while start <= head:
+                        end = min(start + 49, head)
+                        logs += vault.events.WithdrawalRequested().get_logs(
+                            from_block=start, to_block=end
+                        )
+                        start = end + 1
                 except Exception as e:  # noqa: BLE001
-                    print(f"[worker] hasVerdict check failed for {key}: {e}", flush=True)
-                try:
-                    tx = registry.functions.postVerdict(
-                        cid, VAULTS[cid], a["requestId"], SEVERITY[level], s, fh, mhash
-                    ).build_transaction({
-                        "from": writer.address,
-                        "nonce": state["nonce"],
-                        "gas": 200_000,
-                        "maxFeePerGas": base.eth.gas_price * 2,
-                        "maxPriorityFeePerGas": base.eth.gas_price,
-                    })
-                    signed = writer.sign_transaction(tx)
-                    h = base.eth.send_raw_transaction(signed.raw_transaction)
-                    state["nonce"] += 1
-                    print(
-                        f"[worker] chain {cid} req {a['requestId']} to={a['to']} "
-                        f"amount={a['amount']} feats={[round(f, 2) for f in feats]} "
-                        f"-> {level} ({s}) verdict tx {h.hex()}",
-                        flush=True,
-                    )
-                except Exception as e:  # noqa: BLE001
-                    state["nonce"] = base.eth.get_transaction_count(writer.address)
-                    handled.discard(key)
-                    print(f"[worker] post failed for {key}, will retry: {e}", flush=True)
+                    print(f"[worker] poll error chain {cid}: {e}", flush=True)
+                    continue
+                for log in logs:
+                    if process(cid, log):
+                        last_block[cid] = max(last_block[cid], log["blockNumber"])
+                    else:
+                        # Head-of-line block: keep the cursor before this
+                        # log's block so the request is re-fetched and
+                        # retried next cycle. Later requests on this
+                        # chain wait behind it, preserving the feature
+                        # order replay reproduces; other chains proceed.
+                        last_block[cid] = min(last_block[cid], log["blockNumber"] - 1)
+                        break
+        except Exception as e:  # noqa: BLE001
+            print(f"[worker] cycle error, continuing: {e}", flush=True)
         time.sleep(10)
 
 

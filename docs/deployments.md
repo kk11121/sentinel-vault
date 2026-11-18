@@ -420,3 +420,13 @@ the final request:
   clean (the only working-tree findings are the 4 keys in the
   gitignored .env itself); all commits authored Muse <muse@local>,
   first commit 2026-11-17, inside the event period.
+
+### Worker H1 fix live test (2026-11-18 evening)
+- Base request 14 (0.001 ETH, tx 0xb9c852b11ed8cdf4cb0207e22c595c7d5d92a81c01d855d91cb2dd2f9cac8f3c)
+  was judged by the H1-fixed worker: HIGH 691, verdict tx
+  0x7d994cabe964fd317cad8609f3efc8f099a98c5504278de7ab96a6abf134e85a;
+  the RSC vetoed it and froze all three vaults. Recovery unfreezes:
+  Base 0x04021ba0aeced690c0667507e8c94967cce516230220399c7309ba4273453221,
+  Sepolia 0x06857d475655493bc86c1004028a6d1ff241115679fa9093c2f37246abe12806,
+  Unichain 0xfb4b7dbe1709ba752662c4fa3d8dfbcd26c825ac15332ec1c934b3b8f2457f3c.
+  Final state re-verified: all vaults unfrozen.

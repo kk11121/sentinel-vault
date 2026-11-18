@@ -63,3 +63,26 @@
   (an old-stack line briefly suggested a duplicate verdict for the
   new stack's request 5; chain data proved the verdict unique and
   correct - HIGH 684 from the burst history).
+
+## 2026-11-18 — Second adversarial review; worker H1 fixed, contract items disclosed
+- An independent subagent re-audited the post-audit stack: no Critical,
+  no regression in F1-F13. New findings: H1 (worker could silently
+  drop a verdict until restart), M1 (RSC does not check a verdict's
+  (chainId, vault) against the watched table), M2/M3 (no per-request
+  cancel; unexecutable requests lock their reservation), M5 (vetoed
+  requests still enter feature history), M6 (pace counting not
+  idempotent), plus documentation errors.
+- Owner's decision: fix H1 only; disclose the contract-level items
+  in the README instead of a v6 redeploy (a redeploy would orphan
+  the evidence set and the deployer is out of testnet funds).
+- H1 fix in worker/worker.py: verdict payloads are prepared exactly
+  once per request (feature order preserved), posting is confirmed
+  by receipt, the per-chain cursor advances only past posted
+  verdicts, failures retry head-of-line on later cycles, and every
+  per-log exception is contained so one chain's RPC failure (429s
+  observed live on Unichain) can neither kill the process nor stall
+  the other chains. Verified live: Base request 14 judged HIGH 691
+  by the fixed worker, vetoed, all vaults frozen, then unfrozen.
+- Documentation errors found by the review (broken HIGH-verdict
+  link, instant-cap count, a packet reference to a non-existent tx)
+  were fixed the same day.
