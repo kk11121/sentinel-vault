@@ -78,6 +78,7 @@ contract SentinelReactive is OmniReactive {
     event VaultSet(uint256 indexed chainId, address vault);
     event RequestSeen(uint256 indexed chainId, address indexed vault, uint256 indexed requestId);
     event VerdictIgnored(uint256 indexed requestId, uint8 severity);
+    event VerdictForUnwatched(uint256 indexed chainId, address indexed vault, uint256 indexed requestId, uint8 severity);
     event UnverifiedVerdict(uint256 indexed chainId, address indexed vault, uint256 indexed requestId, uint8 severity);
     event PendingVetoRecorded(uint256 indexed chainId, address indexed vault, uint256 indexed requestId, uint8 severity);
     event PendingVetoApplied(uint256 indexed chainId, address indexed vault, uint256 indexed requestId, uint8 severity);
@@ -150,6 +151,10 @@ contract SentinelReactive is OmniReactive {
         if (log_.contractAddress != vaults[log_.chainId]) return;
         uint256 requestId = log_.topic1;
         bytes32 key = requestKey(log_.chainId, log_.contractAddress, requestId);
+        // Idempotent delivery: the same log delivered twice (subscription
+        // overlap, reorg re-delivery) must not double-count the pace guard
+        // or re-apply a pending veto.
+        if (knownRequests[key]) return;
         knownRequests[key] = true;
         emit RequestSeen(log_.chainId, log_.contractAddress, requestId);
 
@@ -187,6 +192,16 @@ contract SentinelReactive is OmniReactive {
         address vault = address(uint160(log_.topic2));
         uint256 requestId = log_.topic3;
         (uint8 severity,,,) = abi.decode(log_.data, (uint8, uint256, bytes32, bytes32));
+        // Only act on verdicts about a vault this RSC actually watches on
+        // that chain. The registry is a public posting board for the
+        // writer key; a verdict naming any other (chain, vault) pair — a
+        // stale worker configuration, another deployment sharing the
+        // registry, or a hand-posted entry — must not move callbacks,
+        // record pending vetoes, or touch escalation state.
+        if (vaults[chainId] != vault) {
+            emit VerdictForUnwatched(chainId, vault, requestId, severity);
+            return;
+        }
         bytes32 key = requestKey(chainId, vault, requestId);
         bool known = knownRequests[key];
 

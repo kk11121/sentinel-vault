@@ -46,6 +46,7 @@ contract GuardedVault is OmniCallback {
         uint256 readyAt;
         bool vetoed;
         bool executed;
+        bool cancelled;
     }
 
     uint256 public constant OWNER_ROTATION_DELAY = 48 hours;
@@ -71,6 +72,7 @@ contract GuardedVault is OmniCallback {
         uint256 indexed requestId, address indexed requester, address indexed to, uint256 amount, uint256 readyAt
     );
     event WithdrawalExecuted(uint256 indexed requestId, address indexed to, uint256 amount);
+    event WithdrawalCancelled(uint256 indexed requestId, address indexed by);
     event WithdrawalVetoed(uint256 indexed requestId, address indexed reactive);
     event Frozen(address indexed reactive, bytes32 reasonCode);
     event Unfrozen(address indexed by);
@@ -96,6 +98,9 @@ contract GuardedVault is OmniCallback {
     error ZeroWindow();
     error NoRotationPending();
     error RotationNotReady();
+    error NotRequester();
+    error AlreadyCancelled();
+    error Cancelled();
 
     constructor(
         address owner_,
@@ -206,7 +211,13 @@ contract GuardedVault is OmniCallback {
             readyAt = block.timestamp + waitSeconds;
         }
         withdrawals[requestId] = Withdrawal({
-            requester: msg.sender, to: to_, amount: amount_, readyAt: readyAt, vetoed: false, executed: false
+            requester: msg.sender,
+            to: to_,
+            amount: amount_,
+            readyAt: readyAt,
+            vetoed: false,
+            executed: false,
+            cancelled: false
         });
         pendingTotal += amount_;
         emit WithdrawalRequested(requestId, msg.sender, to_, amount_, readyAt);
@@ -232,12 +243,33 @@ contract GuardedVault is OmniCallback {
         if (w.amount == 0) revert UnknownRequest();
         if (w.executed) revert AlreadyExecuted();
         if (w.vetoed) revert Vetoed();
+        if (w.cancelled) revert Cancelled();
         if (block.timestamp < w.readyAt) revert NotReady();
         w.executed = true;
         pendingTotal -= w.amount;
         (bool ok,) = payable(w.to).call{ value: w.amount }("");
         if (!ok) revert TransferFailed();
         emit WithdrawalExecuted(requestId_, w.to, w.amount);
+    }
+
+    /// @notice Cancel a live queued withdrawal and release its reservation.
+    ///         Callable by the requester (the owner key that queued it) or
+    ///         by recovery; nobody else. Without this, a request that can
+    ///         never execute — a destination that always rejects transfers,
+    ///         or a request queued by mistake — would hold its pendingTotal
+    ///         reservation forever and shrink the vault's usable balance
+    ///         permanently. Cancellation is allowed while frozen: it moves
+    ///         no funds, it only frees a reservation.
+    function cancelWithdrawal(uint256 requestId_) external {
+        Withdrawal storage w = withdrawals[requestId_];
+        if (w.amount == 0) revert UnknownRequest();
+        if (msg.sender != w.requester && msg.sender != recovery) revert NotRequester();
+        if (w.executed) revert AlreadyExecuted();
+        if (w.vetoed) revert Vetoed();
+        if (w.cancelled) revert AlreadyCancelled();
+        w.cancelled = true;
+        pendingTotal -= w.amount;
+        emit WithdrawalCancelled(requestId_, msg.sender);
     }
 
     /// @notice Veto one queued withdrawal. Callback-only (MEDIUM verdict,
@@ -251,7 +283,7 @@ contract GuardedVault is OmniCallback {
         onlyCallbackSender(reactive_)
     {
         Withdrawal storage w = withdrawals[requestId_];
-        if (w.amount == 0 || w.executed || w.vetoed) return;
+        if (w.amount == 0 || w.executed || w.vetoed || w.cancelled) return;
         w.vetoed = true;
         pendingTotal -= w.amount;
         emit WithdrawalVetoed(requestId_, reactive_);

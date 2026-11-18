@@ -334,7 +334,7 @@ contract SentinelTest is Test {
         uint256 id2 = vault.requestWithdrawal(user, 0.003 ether);
         uint256 id3 = vault.requestWithdrawal(user, 0.003 ether);
         vm.stopPrank();
-        (,, uint256 amount3, uint256 readyAt3,,) = vault.withdrawals(id3);
+        (,, uint256 amount3, uint256 readyAt3,,,) = vault.withdrawals(id3);
         assertEq(amount3, 0.003 ether);
         assertEq(readyAt3, block.timestamp + 600);
         vault.executeWithdrawal(id1);
@@ -345,7 +345,7 @@ contract SentinelTest is Test {
         vm.warp(block.timestamp + 3601);
         vm.prank(owner);
         uint256 id4 = vault.requestWithdrawal(user, 0.003 ether);
-        (,,, uint256 readyAt4,,) = vault.withdrawals(id4);
+        (,,, uint256 readyAt4,,,) = vault.withdrawals(id4);
         assertEq(readyAt4, block.timestamp);
     }
 
@@ -355,9 +355,9 @@ contract SentinelTest is Test {
         uint256 id2 = vault.requestWithdrawal(user, 0.004 ether); // spent == cap exactly
         uint256 id3 = vault.requestWithdrawal(user, 0.001 ether); // over: queues
         vm.stopPrank();
-        (,,, uint256 readyAt2,,) = vault.withdrawals(id2);
+        (,,, uint256 readyAt2,,,) = vault.withdrawals(id2);
         assertEq(readyAt2, block.timestamp);
-        (,,, uint256 readyAt3,,) = vault.withdrawals(id3);
+        (,,, uint256 readyAt3,,,) = vault.withdrawals(id3);
         assertEq(readyAt3, block.timestamp + 600);
         vault.executeWithdrawal(id1);
         vault.executeWithdrawal(id2);
@@ -372,7 +372,7 @@ contract SentinelTest is Test {
         vault.setInstantCap(0.008 ether, 1 hours); // resets the window
         vm.prank(owner);
         uint256 id = vault.requestWithdrawal(user, 0.003 ether);
-        (,,, uint256 readyAt,,) = vault.withdrawals(id);
+        (,,, uint256 readyAt,,,) = vault.withdrawals(id);
         assertEq(readyAt, block.timestamp); // instant again under the fresh window
     }
 
@@ -601,5 +601,106 @@ contract SentinelTest is Test {
         rsc.react(_withdrawalLog(21, address(vault))); // 11th in the new window
         assertTrue(rsc.paceFrozen());
         assertEq(_callbacks(), 1);
+    }
+
+    // ---------- v6: cancel ----------
+
+    function test_cancel_requesterReleasesReservation() public {
+        vm.prank(owner);
+        uint256 id = vault.requestWithdrawal(user, 0.05 ether);
+        assertEq(vault.pendingTotal(), 0.05 ether);
+        vm.prank(owner);
+        vault.cancelWithdrawal(id);
+        assertEq(vault.pendingTotal(), 0);
+        (,,,,, bool executed, bool cancelled) = vault.withdrawals(id);
+        assertTrue(cancelled);
+        assertFalse(executed);
+    }
+
+    function test_cancel_byRecovery() public {
+        vm.prank(owner);
+        uint256 id = vault.requestWithdrawal(user, 0.05 ether);
+        vm.prank(recovery);
+        vault.cancelWithdrawal(id);
+        assertEq(vault.pendingTotal(), 0);
+    }
+
+    function test_cancel_strangerReverts() public {
+        vm.prank(owner);
+        uint256 id = vault.requestWithdrawal(user, 0.05 ether);
+        vm.prank(attacker);
+        vm.expectRevert(GuardedVault.NotRequester.selector);
+        vault.cancelWithdrawal(id);
+    }
+
+    function test_executeCancelled_reverts() public {
+        vm.prank(owner);
+        uint256 id = vault.requestWithdrawal(user, 0.05 ether);
+        vm.prank(owner);
+        vault.cancelWithdrawal(id);
+        vm.warp(block.timestamp + 601);
+        vm.expectRevert(GuardedVault.Cancelled.selector);
+        vault.executeWithdrawal(id);
+    }
+
+    function test_cancel_terminalStates_revert() public {
+        // executed
+        vm.prank(owner);
+        uint256 id1 = vault.requestWithdrawal(user, 0.001 ether); // instant-sized
+        vault.executeWithdrawal(id1);
+        vm.prank(owner);
+        vm.expectRevert(GuardedVault.AlreadyExecuted.selector);
+        vault.cancelWithdrawal(id1);
+        // vetoed
+        vm.prank(owner);
+        uint256 id2 = vault.requestWithdrawal(user, 0.05 ether);
+        vm.prank(proxy);
+        vault.veto(address(rsc), id2);
+        vm.prank(owner);
+        vm.expectRevert(GuardedVault.Vetoed.selector);
+        vault.cancelWithdrawal(id2);
+        // double cancel
+        vm.prank(owner);
+        uint256 id3 = vault.requestWithdrawal(user, 0.05 ether);
+        vm.prank(owner);
+        vault.cancelWithdrawal(id3);
+        vm.prank(owner);
+        vm.expectRevert(GuardedVault.AlreadyCancelled.selector);
+        vault.cancelWithdrawal(id3);
+        // unknown
+        vm.prank(owner);
+        vm.expectRevert(GuardedVault.UnknownRequest.selector);
+        vault.cancelWithdrawal(999);
+    }
+
+    // ---------- v6: RSC watched-check (M1) and idempotency (M6) ----------
+
+    function test_react_verdictForUnwatchedVault_ignored() public {
+        address foreign = address(0xDEAD);
+        // HIGH about a vault the RSC does not watch: no freeze, no veto,
+        // no pending veto recorded.
+        vm.prank(system);
+        rsc.react(_verdictLog(7, foreign, 2));
+        assertEq(_callbacks(), 0);
+        assertEq(rsc.pendingVetoes(rsc.requestKey(VAULT_CHAIN, foreign, 7)), 0);
+        // The watched vault's address named on an unwatched chain: ignored too.
+        vm.prank(system);
+        rsc.react(_verdictLogOn(999, 7, address(vault), 2));
+        assertEq(_callbacks(), 0);
+        // MEDIUM for the foreign vault: no escalation state either.
+        vm.prank(system);
+        rsc.react(_verdictLog(8, foreign, 1));
+        assertEq(_callbacks(), 0);
+        assertEq(rsc.lastMediumAt(rsc.vaultKey(VAULT_CHAIN, foreign)), 0);
+    }
+
+    function test_react_duplicateWithdrawal_countedOnce() public {
+        vm.prank(system);
+        rsc.react(_withdrawalLog(1, address(vault)));
+        vm.prank(system);
+        rsc.react(_withdrawalLog(1, address(vault))); // duplicate delivery
+        vm.prank(system);
+        rsc.react(_withdrawalLog(1, address(vault))); // and again
+        assertEq(rsc.paceCount(), 1);
     }
 }

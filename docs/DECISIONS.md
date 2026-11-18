@@ -86,3 +86,10 @@
 - Documentation errors found by the review (broken HIGH-verdict
   link, instant-cap count, a packet reference to a non-existent tx)
   were fixed the same day.
+- 2026-11-18 (night): The owner reversed the fix-H1-only decision after
+  personally restoring testnet funding (a full pk910 PoW faucet session,
+  +2.5 Sepolia ETH) and ordered the v6 programme: RSC watched-verdict
+  check (M1), pace-count idempotency (M6), and a per-request
+  cancelWithdrawal (M2/M3 mitigation) in the vault, followed by a full
+  stack redeploy, evidence re-run, video re-render, and re-verification.
+  Forge suite extended to 45 tests (7 new), all passing before deploy.
