@@ -1,19 +1,19 @@
 {
-  "stack": "v4/v5 (post-audit)",
+  "stack": "v5/v6 (second review: M1, M6, cancel)",
   "registry": "0x0e55C8F84F44336b766Af8469b74d5163abB7F32",
-  "rsc": "0x48FA2842cCCbe70EEfD9FE094331af4f932A35A7",
+  "rsc": "0x00eC75c154EF87A38836819594c0F2898cF3Eb06",
   "vaults": {
-    "84532": "0xA1eDD9dBBAE962B41950F3314660e966bBEa703b",
-    "11155111": "0x3C17336A3E7f929FEF4608fB053f539dF734B535",
-    "1301": "0x464F45Cf2bF16B1b8E454eaCDD2ff68002E58bce"
+    "84532": "0x1Eb81CC9a9b9760D1DA575C268c47f727369c6f4",
+    "11155111": "0xd8D640DeEcD14DA46b78e29285cdc682BA118Ad6",
+    "1301": "0xAf17d1e294c35cA4eFE35c58B201D6F95Aef3DE4"
   },
   "deployBlocks": {
     "registry": 60039272,
-    "rsc": 8635331,
+    "rsc": 8656666,
     "vaults": {
-      "84532": 60328343,
-      "11155111": 12160045,
-      "1301": 68135168
+      "84532": 60440742,
+      "11155111": 12161873,
+      "1301": 68157605
     }
   }
 }
