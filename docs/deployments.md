@@ -375,3 +375,25 @@ Latency (block timestamps, 2026-11-18 v4/v5 runs):
 Final state: balances Base 0.0200 / Sepolia 0.0040 / Unichain 0.0120 ETH
 (minus callback fees paid during the runs), all unfrozen, wait 180 s,
 threshold 0.0040, cap 0.0080/3600 s; RSC balance 0.8000 lREACT, reserves 1.0000 lREACT.
+
+### Deliberate pace-freeze re-run (2026-11-18 evening) — the run the README/video cite
+
+The first pace freeze above happened while the worker was down (it
+had exited on its own). To have the flagship claim rest on a
+deliberate demonstration, the pace run was repeated with the worker
+intentionally stopped and verified stopped (process count 0) before
+the final request:
+- new pace window (windowStart 1794992216); build-up of 10 requests
+  across the three vaults with the worker live (several model HIGHs
+  froze the vaults mid-build; recovery unfreezes between attempts)
+- worker killed and verified stopped; vaults unfrozen
+- 11th request (Base id 13, 0.001 ETH): 0x6372657ffae7f10e03ae249a3239bc86ec406fc5aa0a61a64e9d60d5f8253167 (ts 1794992466)
+- single Lasna tx 0xfd8edbf5953271d69daaa589430e38bfed6c2c2a70f876d99c9f6bc6f1fc7060:
+  RequestSeen + PaceFreeze + FreezeRequested x3 (paceCount 11, paceFrozen true)
+- freeze callbacks: Base 0x40ccd8e78c61bab469b9329ae93e702a653463e5bf31a2cf3b73e3c6187cda7c (+2 s),
+  Unichain 0x81f9bc88dcfcb9ee7fdaccc53fde5b75426adde26a2bc9def0138089ee48e9f4 (+3 s),
+  Sepolia 0x0a32adcd399f681888ce9be891bc1fc8fff41509d0f1ae71655d88185a850f1e (+6 s)
+- recovery unfreeze x3 afterwards: Base 0x00a4a178d4b62ff247477f99c8f56db4f7eb23c9cfd00e1c6778fb702e814ab7,
+  Sepolia 0xadc444250d932b1f013c39ebf27b91be47589146a2f72384de5bf6e24496cd4b,
+  Unichain 0xffa9c92469013b44e58515fe35a64adb963aff2b44a2cf00868d9d62cdb5b990;
+  worker restarted.

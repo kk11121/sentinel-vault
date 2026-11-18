@@ -211,15 +211,18 @@ executing the HIGH-flagged request 3
 (reverts `Vetoed`), as does the MEDIUM-vetoed request 2
 ([tx FAILS](https://sepolia.basescan.org/tx/0x0393cd0ed02ad201283ffdd221a562c388ca7a4b18ee1862e90f05f732ac8f1d)).
 
-**Pace freeze — the RSC acting alone, no verdicts involved:** the
+**Pace freeze — the RSC acting alone, worker deliberately stopped:**
+with the worker shut down (verified stopped before the request), the
 11th withdrawal request inside one hour across the three vaults
-([0xc376f55a…](https://sepolia.basescan.org/tx/0xc376f55ab175eb2997c4cbd8b1ad48b92f5cbb9f34724f82c443a6fa7fd8b0e3))
+([0x6372657f…](https://sepolia.basescan.org/tx/0x6372657ffae7f10e03ae249a3239bc86ec406fc5aa0a61a64e9d60d5f8253167))
 triggered a single Lasna reactive tx carrying `RequestSeen` +
 `PaceFreeze` + `FreezeRequested` ×3
-([0xd81d1d28…](https://lasna.reactscan.net/tx/0xd81d1d28793290c8cab50dce0a8b1a1ffafca46a33d758a3ed9f6ae4c736be14)),
-freezing all three vaults while the worker was down. The worker
-judged that request only after it was restarted (HIGH, 685) — the
-freeze did not need it.
+([0xfd8edbf5…](https://lasna.reactscan.net/tx/0xfd8edbf5953271d69daaa589430e38bfed6c2c2a70f876d99c9f6bc6f1fc7060)),
+and the freeze callbacks landed on
+[Base](https://sepolia.basescan.org/tx/0x40ccd8e78c61bab469b9329ae93e702a653463e5bf31a2cf3b73e3c6187cda7c) (+2 s),
+[Unichain](https://sepolia.unichain.org/tx/0x81f9bc88dcfcb9ee7fdaccc53fde5b75426adde26a2bc9def0138089ee48e9f4) (+3 s) and
+[Sepolia](https://sepolia.etherscan.org/tx/0x0a32adcd399f681888ce9be891bc1fc8fff41509d0f1ae71655d88185a850f1e) (+6 s).
+No AI verdict was involved in the freeze.
 
 **Replay:** `scripts/replay.py` was run against Base request 1
 (LOW 583), Base request 3 (HIGH 713) and Sepolia request 1
