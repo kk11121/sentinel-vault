@@ -170,8 +170,8 @@ afterwards. Full tx list with notes: `docs/deployments.md`.
 | RSC ignores the LOW verdict (`VerdictIgnored`) | Lasna | [0x92c08436…](https://lasna.reactscan.net/tx/0x92c084361f1bcb75d06f1c21c5aeef8208d5bf57317be00be7986291962628ee) |
 | executed after the wait | Base | [0xdb81ae9c…](https://sepolia.basescan.org/tx/0xdb81ae9c5c23ebc1fd1894287e53e8de0d31a036b12afe7981f7926e8c91cd3c) |
 
-**Instant cap:** in the burst below, the first three 0.003 ETH
-requests were instant-ready; the fourth would have exceeded the
+**Instant cap:** in the burst below, the first two 0.003 ETH
+requests were instant-ready; the third would have exceeded the
 0.008 ETH/h instant budget, so the vault queued it instead
 (`readyAt` = request time + wait, readable in the request state of
 [0xfb8fd775…](https://sepolia.basescan.org/tx/0xfb8fd7754aeb8a0c39e8aa73857e5b93b8dc140cc1934066e85fd24f14d9d61a)).
@@ -189,7 +189,7 @@ three vaults:**
 
 | step | where | tx |
 |---|---|---|
-| verdict HIGH (713) for request 3 | Base | [0xdafe eea7…](https://sepolia.basescan.org/tx/0xdafe eea7a6ce89c322e234cf445a1ea240ab87ea129913944a14bc280abbad1b) |
+| verdict HIGH (713) for request 3 | Base | [0xdafeeea7…](https://sepolia.basescan.org/tx/0xdafeeea7a6ce89c322e234cf445a1ea240ab87ea129913944a14bc280abbad1b) |
 | RSC reacts (`VetoRequested` + `FreezeRequested` ×3 in one tx) | Lasna | [0x2fab0dfd…](https://lasna.reactscan.net/tx/0x2fab0dfd99cf4a2560efc31525f3c1668f1fdd873426851d4effaf3b28d0859a) |
 | veto callback (request 3) | Base | [0x11683dd2…](https://sepolia.basescan.org/tx/0x11683dd28e780b8459746312c90b14f8e390657db90266f7417b13503d12c2e1) |
 | freeze callback | Base | [0xd7d7a15e…](https://sepolia.basescan.org/tx/0xd7d7a15ec52462860f989268ffefc01b935cbaed5754a4e4d55791dc5c579c15) |
@@ -225,9 +225,11 @@ and the freeze callbacks landed on
 No AI verdict was involved in the freeze.
 
 **Replay:** `scripts/replay.py` was run against Base request 1
-(LOW 583), Base request 3 (HIGH 713) and Sepolia request 1
-(LOW 571): severity, score, `featuresHash` and `modelHash` all
-recomputed from chain data and **MATCH**ed the on-chain verdicts.
+(LOW 583), Base request 3 (HIGH 713), Base request 5 (HIGH 684)
+and Sepolia request 1 (LOW 571): severity, score, `featuresHash`
+and `modelHash` all recomputed from chain data and **MATCH**ed
+the on-chain verdicts. Base request 3 also replays to a MATCH
+from a clean clone with no `.env` present.
 
 ### Measured latency (2026-11-18 runs, block timestamps)
 
@@ -258,6 +260,38 @@ just a burst of borderline traffic — can freeze all three vaults
 cheaply. That is deliberate: freezing is the safe direction, it is
 always recoverable by the recovery key, and the alternative (a freeze
 that needs a human to approve) would not land in time.
+
+## Known limitations (second adversarial review, 2026-11-18)
+
+A second independent review of the post-audit stack found no
+regression in the F1–F13 fixes, but surfaced limits that are
+documented here rather than patched, because fixing them in code
+means redeploying the stack and re-running the evidence above:
+
+- **No per-request cancel.** A verdict cannot be amended (the
+  registry accepts exactly one), and neither the owner nor the
+  recovery key can cancel a single queued withdrawal — the only
+  brake is veto (via a verdict) or freezing the whole vault. A
+  request that can never execute (e.g. a recipient that cannot
+  receive ETH) keeps its `pendingTotal` reservation locked.
+- **The RSC trusts the registry's (chainId, vault) pair as-is.**
+  Withdrawal logs are checked against the watched-vault table;
+  verdict logs are checked only for coming from the registry.
+  A verdict posted for an unwatched pair would still trigger a
+  freeze-all. Only the verdictWriter key can post verdicts, so
+  this is a misconfiguration surface, not an external attack —
+  but the asymmetry is real.
+- **Pace counting is not idempotent.** The RSC records each seen
+  request but does not skip duplicates, so a duplicated log
+  delivery (e.g. after a watchVault re-point) would count twice
+  toward the pace freeze. No duplicate delivery has been observed
+  on this deployment; the failure direction is an early freeze,
+  which is the safe direction.
+- **Worker delivery is best-effort within a run.** If posting a
+  verdict fails mid-run (gas, nonce, RPC), that request is only
+  re-examined when the worker restarts and rescans; until then the
+  withdrawal follows the fail-open path after its wait. The
+  registry's duplicate rejection makes restarts safe.
 
 ## The model
 

@@ -31,7 +31,8 @@ sections verbatim. Key claims, all verifiable on-chain:
 
 ## Transaction links (full loop evidence)
 Use the "Proof" section of README.md (request -> verdict -> execute /
-veto / freeze, plus the failed attacker direct-freeze tx).
+veto / freeze, plus the failed negative tests: non-owner request,
+owner unfreeze attempt, zero-amount request).
 
 ## Demo video
 2-3 min, English subtitles, no owner voice. Script: docs/demo-runbook.md.

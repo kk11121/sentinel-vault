@@ -1,5 +1,13 @@
 # Demo video runbook (2-3 min, English subtitles, no owner voice)
 
+> **Historical document.** This runbook was written for the live-filmed
+> pre-audit shoot and mentions superseded parameters (owner setWait,
+> threshold 0.02 ETH). The shipped demo video was re-rendered
+> programmatically from the post-audit evidence run — see
+> `video/make_video_v4.py` and `video/narration.py`. Current parameters
+> live in `README.md` and `deployments.json`; do not operate from the
+> numbers below.
+
 ## Pre-flight (do not film)
 - [ ] Worker running the MODEL version; log shows current modelHash.
       Restart it >10 min before filming so its startup rescan of stale
