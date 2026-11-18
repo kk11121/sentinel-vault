@@ -140,10 +140,10 @@ on 2026-11-18 (regenerate it — do not trust this table over the chain):
 | chain | vault | balance | waitSeconds | largeThreshold | instantCap / window | frozen |
 |---|---|---|---|---|---|---|
 | Unichain Sepolia | `0x464F45Cf2bF16B1b8E454eaCDD2ff68002E58bce` | 0.0120 ETH | 180 s | 0.0040 ETH | 0.0080 ETH / 3600 s | False |
-| Base Sepolia | `0xA1eDD9dBBAE962B41950F3314660e966bBEa703b` | 0.0200 ETH | 180 s | 0.0040 ETH | 0.0080 ETH / 3600 s | False |
+| Base Sepolia | `0xA1eDD9dBBAE962B41950F3314660e966bBEa703b` | 0.0120 ETH | 180 s | 0.0040 ETH | 0.0080 ETH / 3600 s | False |
 | Ethereum Sepolia | `0x3C17336A3E7f929FEF4608fB053f539dF734B535` | 0.0040 ETH | 180 s | 0.0040 ETH | 0.0080 ETH / 3600 s | False |
 
-RSC `0x48FA2842cCCbe70EEfD9FE094331af4f932A35A7` (Lasna): balance 0.8000 lREACT, reserves 1.0000 lREACT at the same reading.
+RSC `0x48FA2842cCCbe70EEfD9FE094331af4f932A35A7` (Lasna): balance 0.8000 lREACT, reserves 0.2865 lREACT at the same reading (reserves are drawn down by each reactive transaction, roughly 0.01 lREACT per callback cycle, and were topped up on 2026-11-18).
 
 ## Proof — the full loop on-chain
 
@@ -282,7 +282,7 @@ same list, so verdicts reproduce exactly.
 ## Status during judging
 
 Last verified on-chain: **2026-11-18** — all three vaults unfrozen,
-balances and settings as in the table above, RSC reserves 1.0000
+balances and settings as in the table above, RSC reserves 0.2865
 lREACT. The worker is a single process; it is kept running during the
 event period, and verdicts for any request it missed are posted when
 it restarts (the registry rejects duplicates, so restarts are safe).

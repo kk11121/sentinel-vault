@@ -397,3 +397,26 @@ the final request:
   Sepolia 0xadc444250d932b1f013c39ebf27b91be47589146a2f72384de5bf6e24496cd4b,
   Unichain 0xffa9c92469013b44e58515fe35a64adb963aff2b44a2cf00868d9d62cdb5b990;
   worker restarted.
+
+### Final state after the full re-verification (2026-11-18 evening)
+- Reserves top-up: depositTo 0.04 lREACT, tx
+  0x72efcd47dfdabb74206070857984a60f34fd284a279de0a2b585f418dce921ef
+  -> reserves 0.2865 lREACT. (A full restore to 1.0 was not possible:
+  the evidence programme spent the deployer's testnet funds - it holds
+  0.0009 Sepolia ETH - and ~0.01 lREACT per callback cycle means the
+  remaining reserves cover dozens of further judging cycles.)
+- Final recovery unfreezes (after the restarted worker finished
+  judging the pace build-up backlog): Base
+  0x43ee7f1c6ba77f4a168dc77608b5ee659fead5cc889d16e2bf5d9398bc36820b,
+  Sepolia 0x75646ebed30d38311933aca30a889848546a57dad39c2c91be5a4e751e6b244f,
+  Unichain 0x177d72e1e82255adb34554c7d07e6a2a35a771af4a7da72f92a7c2be72905019.
+  Verified 75 s later and again at the final print_config: all three
+  vaults frozen=false, config 180 s / 0.004 / 0.008 per 3600 s,
+  balances Base 0.0120 / Sepolia 0.0040 / Unichain 0.0120 ETH.
+- Re-verification summary: forge test 38/38; eval re-run byte-identical;
+  modelHash re-derived == on-chain; replay MATCH x4 (Base req 1 LOW 583,
+  Base req 3 HIGH 713, Base req 5 HIGH 684, Sepolia req 1 LOW 571) plus
+  MATCH from a clean clone with no .env present; gitleaks git history
+  clean (the only working-tree findings are the 4 keys in the
+  gitignored .env itself); all commits authored Muse <muse@local>,
+  first commit 2026-11-17, inside the event period.
