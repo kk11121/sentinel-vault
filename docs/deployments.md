@@ -430,3 +430,14 @@ the final request:
   Sepolia 0x06857d475655493bc86c1004028a6d1ff241115679fa9093c2f37246abe12806,
   Unichain 0xfb4b7dbe1709ba752662c4fa3d8dfbcd26c825ac15332ec1c934b3b8f2457f3c.
   Final state re-verified: all vaults unfrozen.
+
+### Reserves restored (2026-11-18 night) — user-funded
+- The owner mined a full pk910 PoW faucet session on their own machine
+  (the cloud browser could not pass the faucet's Turnstile): +2.5
+  Sepolia ETH to the deployer (balance 0.0009 -> 2.5009).
+- Conversion of 0.01 Sepolia ETH via the faucet converter
+  (tx 0xb9d62fb791b44e1fa1553cc32ba20e04776f99bf54defdbef1684e9129608b49)
+  credited +1.05 lREACT in two tranches (1.0 + 0.05, ~105 per ETH as
+  before). depositTo 0.7694 lREACT
+  (tx 0x3019029258d795325968be24ae77e114d9d470a086b24c5a39518e63a0bab91d)
+  restored RSC reserves from 0.2506 to 1.0200 lREACT.
