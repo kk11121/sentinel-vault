@@ -6,3 +6,4 @@
 [worker] chain 1301 req 1 already judged, skip
 [worker] chain 1301 req 2 already judged, skip
 [worker] chain 1301 req 3 already judged, skip
+[worker] poll error chain 84532: HTTPSConnectionPool(host='sepolia.base.org', port=443): Max retries exceeded with url: / (Caused by ProxyError('Unable to connect to proxy', RemoteDisconnected('Remote end closed connection without response')))
