@@ -175,10 +175,10 @@ def scene2():
 def scene3():
     text_scene("First: the attacks that must fail", [
         ("$ attacker.requestWithdrawal(...)        [not the owner]", FG, 20, False),
-        ("  tx 0xf1d85a7b...  status 0  FAILED — reverts NotOwner", RED, 20, True),
+        ("  tx 0xba697361...  status 0  FAILED — reverts NotOwner", RED, 20, True),
         ("", FG, 14, False),
         ("$ owner.unfreeze()                       [daily key, frozen vault]", FG, 20, False),
-        ("  tx 0xe04e96ab...  status 0  FAILED — reverts NotRecovery", RED, 20, True),
+        ("  tx 0x4293eca0...  status 0  FAILED — reverts NotRecovery", RED, 20, True),
         ("", FG, 14, False),
         ("Only the offline recovery key can unfreeze or reconfigure.", FG, 20, False),
         ("The daily key cannot lift a freeze placed on itself.", FG, 20, False),
@@ -186,15 +186,15 @@ def scene3():
 
 
 def scene4():
-    """Animated timeline: request -> verdict (+10s) -> executed (+77s)."""
+    """Animated timeline: request -> verdict (+7s) -> executed (+98s)."""
     steps = [
         (0.30, 1), (0.25, 2), (0.25, 3), (0.20, 4),
     ]
     events = [
-        ("t+0s   request 0.008 ETH to owner  [Base]", "tx 0xeebd5b7e...", FG),
-        ("t+0s   RSC logs RequestSeen  [Lasna reactive tx]", "tx 0x4dfa549d...", FG),
-        ("t+10s  verdict LOW (583)  [Base]", "tx 0xd9566a09...", GREEN),
-        ("t+77s  executed after the wait  [Base]", "tx 0x15edb14c...", GREEN),
+        ("t+0s   request 0.008 ETH to owner  [Base]", "tx 0xcc8d2059...", FG),
+        ("t+0s   RSC logs RequestSeen  [Lasna reactive tx]", "tx 0x1c5f2266...", FG),
+        ("t+7s   verdict LOW (583)  [Base]", "tx 0xcdfdc918...", GREEN),
+        ("t+98s  executed after the wait  [Base]", "tx 0xdb81ae9c...", GREEN),
     ]
     for frac, shown in steps:
         img, d = base_canvas("Normal withdrawal — judged LOW, executes", CAP[3])
@@ -215,9 +215,9 @@ def scene4():
         emit(img, DUR[4] * frac)
     card_scene("The verdict, as the explorer shows it", CAP[3], 6.5,
                "Data read from the Base Sepolia explorer (Blockscout API), 2026-11-18.",
-               [("Tx Hash", "0xd9566a09...d6d17b8", FG),
+               [("Tx Hash", "0xcdfdc918...1effdfbc", FG),
                 ("Status", "Success", GREEN),
-                ("Block", "60041328", FG),
+                ("Block", "60329273", FG),
                 ("From", "0xD4bdEb62...F9B9c307  (verdictWriter)", FG),
                 ("To", "0x0e55C8F8...63abB7F32  (VerdictRegistry)", FG),
                 ("Action", "postVerdict — LOW, score 583", GREEN)])
@@ -228,11 +228,11 @@ def scene5():
         ("Three 0.003 ETH requests, seconds apart     [Base Sepolia]", FG, 20, False),
         ("  #1, #2 instant — #3 queued by the hourly instant cap", DIM, 19, False),
         ("", FG, 14, False),
-        ("[worker] req 2 -> MEDIUM (662)   tx 0xc928d167...", AMBER, 20, True),
+        ("[worker] req 2 -> MEDIUM (662)   tx 0x65b2a6a1...", AMBER, 20, True),
         ("t+1s  RSC VetoRequested                     [Lasna]", FG, 20, False),
-        ("      reactive tx 0x3058ab3d...", DIM, 18, False),
+        ("      reactive tx 0x40411f93...", DIM, 18, False),
         ("t+1s  veto lands via callback proxy", FG, 20, False),
-        ("      WithdrawalVetoed   tx 0xa5c2bc1c...", AMBER, 20, False),
+        ("      WithdrawalVetoed   tx 0x52726a3b...", AMBER, 20, False),
     ], CAP[4], DUR[5])
 
 
@@ -247,9 +247,9 @@ def scene6():
     weights = [0.34, 0.22, 0.22, 0.22]
     for frozen_count, wfrac in zip(phases, weights):
         img, d = base_canvas("HIGH — all three vaults freeze pre-emptively", CAP[5])
-        d.text((70, 104), "[worker] req 3 -> HIGH (713)   tx 0xa0ee51c8...",
+        d.text((70, 104), "[worker] req 3 -> HIGH (713)   tx 0xdafeeea7...",
                font=font(MONO_B, 20), fill=RED)
-        d.text((70, 140), "RSC FreezeRequested x3   reactive tx 0x2e415642...  [Lasna]",
+        d.text((70, 140), "RSC FreezeRequested x3   reactive tx 0x2fab0dfd...  [Lasna]",
                font=font(MONO, 18), fill=DIM)
         y = 200
         for j, (name, delta) in enumerate(chains):
@@ -263,22 +263,22 @@ def scene6():
                    fill=RED if frozen else DIM)
             y += 92
         if frozen_count == 3:
-            d.text((70, y + 6), "A later request while frozen: tx 0x072d0415... FAILED (VaultFrozen)",
+            d.text((70, y + 6), "The HIGH verdict vetoes its own request too: tx 0x11683dd2... (WithdrawalVetoed)",
                    font=font(MONO, 18), fill=FG)
         emit(img, DUR[6] * wfrac)
     card_scene("The reactive transaction, as Lasna's explorer shows it", CAP[5], 7.0,
                "Data read from lasna.reactscan.net (the tx page itself), 2026-11-18.",
-               [("Tx Hash", "0x2e415642...ac98027", FG),
+               [("Tx Hash", "0x2fab0dfd...78d0859a", FG),
                 ("Status", "SUCCESS", GREEN),
-                ("Block", "8581428", FG),
+                ("Block", "8635792", FG),
                 ("From", "0x038E0666...F9bD6B82  (validator)", FG),
-                ("Origin event", "verdict tx 0xa0ee51c8...  (Base Sepolia)", FG),
-                ("Callback #1", "Base vault, dest tx 0xce4bd474...", RED)])
+                ("Origin event", "verdict tx 0xdafeeea7...  (Base Sepolia)", FG),
+                ("Callback #1", "Base vault, dest tx 0xd7d7a15e...", RED)])
     card_scene("The freeze callback, as the explorer shows it", CAP[5], 6.5,
                "Data read from the Ethereum Sepolia explorer, 2026-11-18.",
-               [("Tx Hash", "0xcce2cf3e...21ab84", FG),
+               [("Tx Hash", "0x98667143...71e577b", FG),
                 ("Status", "Success", GREEN),
-                ("Block", "12155392", FG),
+                ("Block", "12160113", FG),
                 ("From", "0xF7E866D7...68A4D91DDb  (relayer)", FG),
                 ("To", "0xAa14d9Cd...bd035D23b4  (callback proxy)", FG),
                 ("Action", "Deliver Callback — vault frozen", RED)])
@@ -303,12 +303,12 @@ def scene7():
             if n == 6:
                 x, y = 70, y + 82
         if upto >= 11:
-            d.text((70, 380), "11th request  tx 0x0af58b70...  [Base]",
+            d.text((70, 380), "11th request  tx 0x6372657f...  [Base]",
                    font=font(MONO, 19), fill=FG)
         if upto >= 12:
             d.text((70, 424), "One Lasna tx: RequestSeen + PaceFreeze + FreezeRequested x3",
                    font=font(MONO_B, 20), fill=RED)
-            d.text((70, 462), "tx 0xf5aeb1e9... — freeze callbacks land in +2s / +3s / +6s",
+            d.text((70, 462), "tx 0xfd8edbf5... — freeze callbacks land in +2s / +3s / +6s",
                    font=font(MONO, 19), fill=FG)
         emit(img, DUR[7] * wfrac)
 
@@ -345,10 +345,10 @@ def scene9():
 def scene10():
     text_scene("Sentinel Vault", [
         ("VerdictRegistry   Base Sepolia  0x0e55C8F8...63abB7F32", FG, 19, False),
-        ("SentinelReactive  Lasna         0xeaE20ecc...8CC21a1ff8", FG, 19, False),
-        ("GuardedVault      Base Sepolia  0xAf17d1e2...F95Aef3DE4", FG, 19, False),
-        ("GuardedVault      Eth Sepolia   0x0C0c5477...B02335d395BED", FG, 19, False),
-        ("GuardedVault      Unichain Sep. 0x95Fd0764...aa1410b19b2d", FG, 19, False),
+        ("SentinelReactive  Lasna         0x48FA2842...4f932A35A7", FG, 19, False),
+        ("GuardedVault      Base Sepolia  0xA1eDD9dB...66bBEa703b", FG, 19, False),
+        ("GuardedVault      Eth Sepolia   0x3C17336A...9dF734B535", FG, 19, False),
+        ("GuardedVault      Unichain Sep. 0x464F45Cf...8002E58bce", FG, 19, False),
         ("", FG, 14, False),
         ("The model's key can post verdicts and nothing else —", BLUE, 20, True),
         ("it cannot move, unfreeze, or reconfigure the vaults.", BLUE, 20, True),
