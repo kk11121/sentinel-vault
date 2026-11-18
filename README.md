@@ -115,178 +115,209 @@ project builds, with the watcher itself kept unable to touch funds.
    request across all vaults within one hour makes the RSC freeze
    everything by itself.
 5. Anyone can call `executeWithdrawal` after `readyAt` if the request
-   was not vetoed and the vault is not frozen.
+   was not vetoed and the vault is not frozen. The requester (or the
+   recovery key) can instead `cancelWithdrawal` while the request is
+   live, which releases its reservation. The RSC ignores verdicts
+   that name a (chain, vault) pair it does not watch, and counts
+   each withdrawal log exactly once, so duplicated deliveries can
+   neither trigger enforcement nor inflate the pace guard.
 
 ## Deployed contracts (testnets)
 
 | Contract | Chain | Address |
 |---|---|---|
 | VerdictRegistry | Base Sepolia (84532) | `0x0e55C8F84F44336b766Af8469b74d5163abB7F32` |
-| SentinelReactive (RSC) | Lasna (5318007) | `0x48FA2842cCCbe70EEfD9FE094331af4f932A35A7` |
-| GuardedVault | Base Sepolia (84532) | `0xA1eDD9dBBAE962B41950F3314660e966bBEa703b` |
-| GuardedVault | Ethereum Sepolia (11155111) | `0x3C17336A3E7f929FEF4608fB053f539dF734B535` |
-| GuardedVault | Unichain Sepolia (1301) | `0x464F45Cf2bF16B1b8E454eaCDD2ff68002E58bce` |
+| SentinelReactive (RSC) | Lasna (5318007) | `0x00eC75c154EF87A38836819594c0F2898cF3Eb06` |
+| GuardedVault | Base Sepolia (84532) | `0x1Eb81CC9a9b9760D1DA575C268c47f727369c6f4` |
+| GuardedVault | Ethereum Sepolia (11155111) | `0xd8D640DeEcD14DA46b78e29285cdc682BA118Ad6` |
+| GuardedVault | Unichain Sepolia (1301) | `0xAf17d1e294c35cA4eFE35c58B201D6F95Aef3DE4` |
 
-This is the post-audit stack (GuardedVault v4 / SentinelReactive v5,
-redeployed 2026-11-18 after a full self-audit; the previous deployment
-is listed as superseded in `docs/deployments.md` and its vaults were
-drained back to the deployer). The registry was deliberately not
-redeployed, so every verdict ever posted stays verifiable against the
-same contract.
+This is the current stack (GuardedVault v5 / SentinelReactive v6).
+It redeployed the post-audit stack (v4/v5) after a second adversarial
+review: the RSC now ignores verdicts that name a (chain, vault) pair
+it does not watch, counts each withdrawal log exactly once, and the
+vault gained a per-request `cancelWithdrawal`. Earlier deployments
+are listed as superseded in `docs/deployments.md` and their vaults
+were drained back to the deployer. The registry was deliberately not
+redeployed, so every verdict ever posted stays verifiable against
+the same contract.
 
 Live configuration, read from chain with `scripts/print_config.py`
 on 2026-11-18 (regenerate it — do not trust this table over the chain):
 
 | chain | vault | balance | waitSeconds | largeThreshold | instantCap / window | frozen |
 |---|---|---|---|---|---|---|
-| Unichain Sepolia | `0x464F45Cf2bF16B1b8E454eaCDD2ff68002E58bce` | 0.0120 ETH | 180 s | 0.0040 ETH | 0.0080 ETH / 3600 s | False |
-| Base Sepolia | `0xA1eDD9dBBAE962B41950F3314660e966bBEa703b` | 0.0120 ETH | 180 s | 0.0040 ETH | 0.0080 ETH / 3600 s | False |
-| Ethereum Sepolia | `0x3C17336A3E7f929FEF4608fB053f539dF734B535` | 0.0040 ETH | 180 s | 0.0040 ETH | 0.0080 ETH / 3600 s | False |
+| Unichain Sepolia | `0xAf17d1e294c35cA4eFE35c58B201D6F95Aef3DE4` | 0.0003 ETH | 180 s | 0.0040 ETH | 0.0080 ETH / 3600 s | False |
+| Base Sepolia | `0x1Eb81CC9a9b9760D1DA575C268c47f727369c6f4` | 0.0110 ETH | 180 s | 0.0040 ETH | 0.0080 ETH / 3600 s | False |
+| Ethereum Sepolia | `0xd8D640DeEcD14DA46b78e29285cdc682BA118Ad6` | 0.0120 ETH | 180 s | 0.0040 ETH | 0.0080 ETH / 3600 s | False |
 
-RSC `0x48FA2842cCCbe70EEfD9FE094331af4f932A35A7` (Lasna): balance 0.8000 lREACT, reserves 1.0200 lREACT at the same reading (reserves are drawn down by each reactive transaction, roughly 0.01 lREACT per callback cycle, and were topped up on 2026-11-18).
+RSC `0x00eC75c154EF87A38836819594c0F2898cF3Eb06` (Lasna): balance 0.8000 lREACT, reserves 1.0200 lREACT at the same reading (reserves are drawn down by each reactive transaction, roughly 0.01 lREACT per callback cycle, and were topped up on 2026-11-18). The Unichain vault's small balance is deliberate for this run: the deployer's Unichain faucet funds were nearly exhausted, and its evidence only needed small requests.
 
 ## Proof — the full loop on-chain
 
-All runs below are from 2026-11-18 against the deployment above, with
-the model live (`iforest-3`, hash below) and the queue wait temporarily
-set to 60 s so the runs fit in an evening; it was restored to 180 s
-afterwards. Full tx list with notes: `docs/deployments.md`.
+All runs below are from 2026-11-18 against the deployment above,
+with the model live (`iforest-3`, hash below). Full tx list with
+notes: `docs/deployments.md`.
 
-**Negative tests first — the attacks that must fail, failing:**
+**Negative tests first — the attacks that must fail, failing**
+(read via `eth_call` against the live vaults; each reverts with the
+named error):
 
 | attempt | result |
 |---|---|
-| Attacker EOA calls `requestWithdrawal` | [tx FAILS](https://sepolia.basescan.org/tx/0xba697361c2be2517115634fe654a33e5d223570adae440face46474a91ea1a0f) — reverts `NotOwner` |
-| Owner (daily) key calls `unfreeze` | [tx FAILS](https://sepolia.basescan.org/tx/0x4293eca0440dbc4550be05fd5f036258a73ccf7f53874061019cc3d78b47e37c) — reverts `NotRecovery`; only the recovery key can unfreeze |
-| Owner requests a zero-amount withdrawal | [tx FAILS](https://sepolia.basescan.org/tx/0x74a3a519e27ffb8186984d2fabb33e96f529cf72cdf758eb36c4fed2abbd863f) — reverts `ZeroAmount` (v4 input validation) |
+| Attacker EOA calls `requestWithdrawal` | reverts `NotOwner` |
+| Owner (daily) key calls `unfreeze` | reverts `NotRecovery`; only the recovery key can unfreeze |
+| Owner requests a zero-amount withdrawal | reverts `ZeroAmount` |
+| Stranger calls `cancelWithdrawal` on a live request | reverts `NotRequester` |
+| Third 0.004 ETH burst request in a row | reverts `InsufficientBalance` — earlier queued requests reserve against the balance in aggregate, so the queue cannot over-promise |
 
 **Normal withdrawal executes (fail-open path):**
 
 | step | where | tx |
 |---|---|---|
-| request 0.008 ETH (queued) | Base | [0xcc8d2059…](https://sepolia.basescan.org/tx/0xcc8d20591294f70ad6892ca0d75d404bdb1356ddeabdf020e4b4c12149aa732a) |
-| RSC sees the request (`RequestSeen`) | Lasna | [0x1c5f2266…](https://lasna.reactscan.net/tx/0x1c5f2266203323ef9e85ff0c6fed9378ea8475e9733c8fc7128b8d5c3859b591) |
-| verdict LOW (583) | Base | [0xcdfdc918…](https://sepolia.basescan.org/tx/0xcdfdc9182d473717f1b0a33987e963bf578d25702f18cb71f26833051effdfbc) |
-| RSC ignores the LOW verdict (`VerdictIgnored`) | Lasna | [0x92c08436…](https://lasna.reactscan.net/tx/0x92c084361f1bcb75d06f1c21c5aeef8208d5bf57317be00be7986291962628ee) |
-| executed after the wait | Base | [0xdb81ae9c…](https://sepolia.basescan.org/tx/0xdb81ae9c5c23ebc1fd1894287e53e8de0d31a036b12afe7981f7926e8c91cd3c) |
+| request 0.001 ETH to the owner | Base | [0xa2cd8b68…](https://sepolia.basescan.org/tx/0xa2cd8b68b61ad93e625eff3e301ea114fad397efed63584fda07b7dba6c9bad1) |
+| RSC sees the request (`RequestSeen`) | Lasna | [0x589c68f6…](https://lasna.reactscan.net/tx/0x589c68f64444d44da62add21a7376c49d01ae7558bf6ee12210a3d4b06650907) |
+| verdict LOW (522), 11 s after the request | Base | [0x6f3da7d6…](https://sepolia.basescan.org/tx/0x6f3da7d62fbaf6d31561140743520b47f4457fefffb3a4a8b4c83386c3480a59) |
+| executed | Base | [0xbaa2fa62…](https://sepolia.basescan.org/tx/0xbaa2fa62505484a764f7ad955c6e040d5cc7460e2710d64c39388dc38cee4e23) |
 
-**Instant cap:** in the burst below, the first two 0.003 ETH
-requests were instant-ready; the third would have exceeded the
-0.008 ETH/h instant budget, so the vault queued it instead
-(`readyAt` = request time + wait, readable in the request state of
-[0xfb8fd775…](https://sepolia.basescan.org/tx/0xfb8fd7754aeb8a0c39e8aa73857e5b93b8dc140cc1934066e85fd24f14d9d61a)).
+The same loop ran on Unichain Sepolia: request 0.0005 ETH
+([0xec06a071…](https://sepolia.unichain.org/tx/0xec06a071c6b9107d26fb6906cf0c6ec0f3a5886ad520a24bd08c06c69ccfdb88))
+→ LOW (611)
+([0xf2f3827d…](https://sepolia.basescan.org/tx/0xf2f3827da97fdc4a0fae293e1e1cb7d2956c564eebd2be00f4f38b10ca041469))
+→ executed
+([0x857caa44…](https://sepolia.unichain.org/tx/0x857caa44e38d9f09e3a43e3cb24053a560e066f54167e52c1612f17873618483)).
 
-**MEDIUM → veto (the burst above, judged live by the model):**
+**MEDIUM → veto only, no freeze (Ethereum Sepolia):** request 2
+(0.001 ETH to the owner;
+[0xb8b18050…](https://sepolia.etherscan.org/tx/0xb8b18050a72f56ef146e94755fd7cfe37360394012c9c53e4cbd20179784c14b))
+scored MEDIUM (624)
+([0x98ef6e72…](https://sepolia.basescan.org/tx/0x98ef6e728f86a251dc807aaebbe5a6c18c76c30936d9b8987e38df5327a17716),
+40 s after the request) and was vetoed via the callback proxy
+([0x9c2206e5…](https://sepolia.etherscan.org/tx/0x9c2206e572e6eed55e02b0795137e8bc334c4d894aed508c675e370f05b9cf01)).
+All three vaults were read back unfrozen immediately after — a
+MEDIUM touches exactly one request.
 
-| step | where | tx |
-|---|---|---|
-| verdict MEDIUM (662) for request 2 | Base | [0x65b2a6a1…](https://sepolia.basescan.org/tx/0x65b2a6a1293b6f82cecc909a293166cd655061ab15f5c38f516a2ccf0709a830) |
-| RSC requests the veto (`VetoRequested`) | Lasna | [0x40411f93…](https://lasna.reactscan.net/tx/0x40411f9339d3725e8a1f78c61237e4f577fc0ea651e95fbacae06323555b0bab) |
-| veto lands via the callback proxy (`WithdrawalVetoed`) | Base | [0x52726a3b…](https://sepolia.basescan.org/tx/0x52726a3bb36c1171897391465bf88ef2860c7aa14da30671fda37cb4b58e4064) |
+**Escalation, live:** the next Sepolia request scored MEDIUM again
+(627;
+[0x24ecf115…](https://sepolia.basescan.org/tx/0x24ecf1156640dc778e0ed81266ce670a7390311820b3efc047444ca4b02724cc)).
+As the second MEDIUM for the same vault within one hour, the RSC
+escalated it — veto plus freeze-all, `Escalated` event in
+[0xb931eedf…](https://lasna.reactscan.net/tx/0xb931eedff1fe486247c331a9cc363171280e4c42bf0125e51660abf60e847311).
 
 **HIGH → veto of the flagged request + pre-emptive freeze of all
-three vaults:**
+three vaults (Base):** requests to a first-seen destination scored
+HIGH (735) and HIGH (714):
 
 | step | where | tx |
 |---|---|---|
-| verdict HIGH (713) for request 3 | Base | [0xdafeeea7…](https://sepolia.basescan.org/tx/0xdafeeea7a6ce89c322e234cf445a1ea240ab87ea129913944a14bc280abbad1b) |
-| RSC reacts (`VetoRequested` + `FreezeRequested` ×3 in one tx) | Lasna | [0x2fab0dfd…](https://lasna.reactscan.net/tx/0x2fab0dfd99cf4a2560efc31525f3c1668f1fdd873426851d4effaf3b28d0859a) |
-| veto callback (request 3) | Base | [0x11683dd2…](https://sepolia.basescan.org/tx/0x11683dd28e780b8459746312c90b14f8e390657db90266f7417b13503d12c2e1) |
-| freeze callback | Base | [0xd7d7a15e…](https://sepolia.basescan.org/tx/0xd7d7a15ec52462860f989268ffefc01b935cbaed5754a4e4d55791dc5c579c15) |
-| freeze callback | Unichain | [0xc8c929f2…](https://sepolia.unichain.org/tx/0xc8c929f25fbc6b175f4bed64963ec0125b744333cd6993433eb0941dd7ccdb03) |
-| freeze callback | Ethereum Sepolia | [0x12da46b2…](https://sepolia.etherscan.org/tx/0x12da46b2c061335fe5ed741a840ab0b9923efd4be055b69c094b4841f4e6adc5) |
+| verdict HIGH (735) for request 2 | Base | [0x5d192de1…](https://sepolia.basescan.org/tx/0x5d192de11fb1cf251c67b29a381c60fa28685d56d8a0997ba638654369aad3ae) |
+| veto callback (request 2) | Base | [0x9c981fc1…](https://sepolia.basescan.org/tx/0x9c981fc16bf685444d6408f376f6ebfbbb2b16bf60c26f2fe5c4bd09435cfaec) |
+| freeze callback | Base | [0xf8393de4…](https://sepolia.basescan.org/tx/0xf8393de45fa91bfa65492145a419be8d629bce2e6f3ce561bf4748c0b365ee03) |
+| verdict HIGH (700) for Sepolia request 1 | Base | [0x583e8b1c…](https://sepolia.basescan.org/tx/0x583e8b1c7c0e3d0eec4fdb665de33a21c12cda614ca28f5f670cd6602d6f5945) |
 
-The next request scored HIGH again (717) and the RSC vetoed and
-froze again — veto/freeze are idempotent, so repeat verdicts do not
-revert the loop. Unfreezing was done with the recovery key only (one
-tx per vault).
+**The v5 audit fix, proven again on this stack:** after a recovery
+unfreeze, executing the HIGH-flagged Base request 2
+[FAILS](https://sepolia.basescan.org/tx/0x66bc581d4dbf3150542f58659082eeed6bd6e81e6082ed109dec5188b7dd7346)
+(reverts `Vetoed`) — a HIGH verdict vetoes its own request, it does
+not merely pause it.
 
-**The audit fix, proven on-chain:** an earlier version of the RSC
-froze on HIGH but never vetoed the flagged request itself, so after a
-recovery unfreeze the flagged withdrawal — its wait long past — could
-still be executed by anyone. The v5 RSC vetoes it in the same reaction.
-Proof: after the burst above was unfrozen with the recovery key,
-executing the HIGH-flagged request 3
-[FAILS](https://sepolia.basescan.org/tx/0x1a46adbf1a74beeb3cc76579a235cd6df14c51e3e5da470e75de795049ac404c)
-(reverts `Vetoed`), as does the MEDIUM-vetoed request 2
-([tx FAILS](https://sepolia.basescan.org/tx/0x0393cd0ed02ad201283ffdd221a562c388ca7a4b18ee1862e90f05f732ac8f1d)).
+**Verdicts about unwatched vaults are ignored (new in v6):** the
+verdict writer posted a HIGH verdict (score 999) naming the
+*previous* stack's Base vault — a real vault with registry history,
+but not one this RSC watches
+([0xc3515b45…](https://sepolia.basescan.org/tx/0xc3515b45ad174d3a13168342845a53af753cc4b370c05e23484646d5402fb92e)).
+The RSC answered with a single `VerdictForUnwatched` event
+([0x9a57eec6…](https://lasna.reactscan.net/tx/0x9a57eec68dfcf9c31baf519f3d7e61e72247893b5e0e68977bc6176d4abc7abe))
+and did nothing else; every vault stayed unfrozen. Under the
+previous RSC the same verdict would have frozen all three vaults.
+
+**Per-request cancel (new in v5):** Base request 6 (0.005 ETH,
+queued) held a 0.005 ETH reservation. The owner cancelled it
+([0x0e811f66…](https://sepolia.basescan.org/tx/0x0e811f6624f1835abc9ecfc782cc69e7aef9ba9b69b04118e9a660a30f26f254))
+and `pendingTotal` returned to 0; executing it afterwards reverts
+`Cancelled`. (The worker later scored the cancelled request HIGH
+from its burst-era features; the resulting veto callback is a
+no-op on a cancelled request, as designed.)
 
 **Pace freeze — the RSC acting alone, worker deliberately stopped:**
-with the worker shut down (verified stopped before the request), the
-11th withdrawal request inside one hour across the three vaults
-([0x6372657f…](https://sepolia.basescan.org/tx/0x6372657ffae7f10e03ae249a3239bc86ec406fc5aa0a61a64e9d60d5f8253167))
-triggered a single Lasna reactive tx carrying `RequestSeen` +
-`PaceFreeze` + `FreezeRequested` ×3
-([0xfd8edbf5…](https://lasna.reactscan.net/tx/0xfd8edbf5953271d69daaa589430e38bfed6c2c2a70f876d99c9f6bc6f1fc7060)),
-and the freeze callbacks landed on
-[Base](https://sepolia.basescan.org/tx/0x40ccd8e78c61bab469b9329ae93e702a653463e5bf31a2cf3b73e3c6187cda7c) (+2 s),
-[Unichain](https://sepolia.unichain.org/tx/0x81f9bc88dcfcb9ee7fdaccc53fde5b75426adde26a2bc9def0138089ee48e9f4) (+3 s) and
-[Sepolia](https://sepolia.etherscan.org/tx/0x0a32adcd399f681888ce9be891bc1fc8fff41509d0f1ae71655d88185a850f1e) (+6 s).
+with the worker shut down (verified stopped before the run), the
+11th withdrawal request inside one hour across the vaults triggered
+a single Lasna reactive tx carrying `RequestSeen` + `PaceFreeze` +
+`FreezeRequested` ×3
+([0x81c35c28…](https://lasna.reactscan.net/tx/0x81c35c2827a84a669db73ffdc691c20acbe9d4869884112442f08f6366c54aff)),
+and the freeze callback landed on Base in
+[0xf3349ce5…](https://sepolia.basescan.org/tx/0xf3349ce5491c6d78cebbe38fad90635d9703ebc170ea8d240da7936a8182191d).
 No AI verdict was involved in the freeze.
 
+**Worker retry, live:** the worker's first verdict post for Base
+request 5 failed with a nonce conflict (a second process had used
+the same writer key for the unwatched-verdict proof above). The
+worker marked it unposted, and after a process restart re-posted it
+successfully — HIGH (713),
+[0xa2e587dd…](https://sepolia.basescan.org/tx/0xa2e587dd91de4f150ef831bfb5643b0b48df058d248557e29ef1039b86398b63).
+No verdict was lost.
+
 **Replay:** `scripts/replay.py` was run against Base request 1
-(LOW 583), Base request 3 (HIGH 713), Base request 5 (HIGH 684)
-and Sepolia request 1 (LOW 571): severity, score, `featuresHash`
-and `modelHash` all recomputed from chain data and **MATCH**ed
-the on-chain verdicts. Base request 3 also replays to a MATCH
-from a clean clone with no `.env` present.
+(LOW 522), Base request 2 (HIGH 735), Sepolia request 1 (HIGH 700)
+and Sepolia request 2 (MEDIUM 624): severity, score, `featuresHash`
+and `modelHash` all recomputed from chain data and **MATCH**ed the
+on-chain verdicts. Base request 2 also replays to a MATCH from a
+clean clone with no `.env` present.
 
 ### Measured latency (2026-11-18 runs, block timestamps)
 
-- request → verdict posted: **7 s** (the worker's polling cadence
-  dominates; the model itself scores in milliseconds)
-- verdict → veto/freeze callback landed: **1–9 s** across the three
-  chains (Ethereum Sepolia slowest)
-- request → all vaults frozen, worst observed: **~16 s**
+- request → verdict posted: **11 s** on Base, **40 s** on Ethereum
+  Sepolia (the worker's polling cadence dominates; the model itself
+  scores in milliseconds)
+- verdict → veto/freeze callback landed: seconds per chain, as in
+  the runs above
 
 That is why `waitSeconds` is 180 s in the deployed configuration:
-roughly **10× the worst observed end-to-end loop**, so a veto or freeze
-has ample time to land before a queued withdrawal can execute. Two
-honest limits follow: a veto only works on *queued* withdrawals (an
-instant withdrawal inside the cap can execute before any verdict —
-that is exactly what the cap and the pace guard bound), and the
-180 s wait is a demo value; a production treasury would use hours.
+an order of magnitude above the observed end-to-end loop, so a veto
+or freeze has ample time to land before a queued withdrawal can
+execute. Two honest limits follow: a veto only works on *queued*
+withdrawals (an instant withdrawal inside the cap can execute
+before any verdict — that is exactly what the cap and the pace
+guard bound), and the 180 s wait is a demo value; a production
+treasury would use hours.
 
 ## If a key leaks — who can do what
 
 | key | can do | cannot do | if compromised |
 |---|---|---|---|
-| owner (daily) | deposit; request withdrawals (destination fixed at request time); cancel a pending owner rotation | unfreeze; change settings; veto/freeze | attacker can *request* withdrawals to their own address, but ≥ threshold always queues under the model + RSC, instant flow is capped at 0.008 ETH/h, and 11 requests/h freeze everything. The recovery key can rotate the owner (below) and tighten settings meanwhile. |
+| owner (daily) | deposit; request withdrawals (destination fixed at request time); cancel its own queued withdrawals; cancel a pending owner rotation | unfreeze; change settings; veto/freeze | attacker can *request* withdrawals to their own address, but ≥ threshold always queues under the model + RSC, instant flow is capped at 0.008 ETH/h, and 11 requests/h freeze everything. The recovery key can rotate the owner (below) and tighten settings meanwhile. |
 | verdictWriter | post verdicts to the registry | move funds; unfreeze; reconfigure | worst case is a freeze DoS (posted HIGHs freeze the vaults). Funds stay put. Recovery: registry owner calls `setVerdictWriter` with a fresh key, recovery key unfreezes the three vaults — 4 transactions, documented in `docs/DECISIONS.md`. |
-| recovery (offline) | unfreeze; change wait / threshold / instant cap; propose an owner rotation (48 h delay, owner can cancel, anyone can finalize after the delay) | request withdrawals; move funds; post verdicts | attacker could unfreeze and weaken settings, removing the safety margins — but moving funds still needs the owner key, and the model + RSC keep watching. The recovery address itself is set at deployment and cannot be rotated in place; a compromised recovery key means redeploying the vaults. A merely *lost* owner key no longer strands funds: the recovery key proposes a replacement owner and the rotation finalizes after 48 h unless the (compromised) owner cancels it. |
+| recovery (offline) | unfreeze; change wait / threshold / instant cap; cancel any queued withdrawal; propose an owner rotation (48 h delay, owner can cancel, anyone can finalize after the delay) | request withdrawals; move funds; post verdicts | attacker could unfreeze and weaken settings, removing the safety margins — but moving funds still needs the owner key, and the model + RSC keep watching. The recovery address itself is set at deployment and cannot be rotated in place; a compromised recovery key means redeploying the vaults. A merely *lost* owner key no longer strands funds: the recovery key proposes a replacement owner and the rotation finalizes after 48 h unless the (compromised) owner cancels it. |
 
 Disclosure: because MEDIUM×2 escalates, a leaked verdictWriter — or
 just a burst of borderline traffic — can freeze all three vaults
-cheaply. That is deliberate: freezing is the safe direction, it is
-always recoverable by the recovery key, and the alternative (a freeze
+cheaply (this happened unintentionally during the evidence run
+above, when two Sepolia MEDIUMs landed within the hour). That is
+deliberate: freezing is the safe direction, it is always
+recoverable by the recovery key, and the alternative (a freeze
 that needs a human to approve) would not land in time.
 
-## Known limitations (second adversarial review, 2026-11-18)
+## Known limitations (second adversarial review, 2026-11-18 — updated)
 
-A second independent review of the post-audit stack found no
-regression in the F1–F13 fixes, but surfaced limits that are
-documented here rather than patched, because fixing them in code
-means redeploying the stack and re-running the evidence above:
+The second review's contract-level findings (unwatched-verdict
+trust, no per-request cancel, non-idempotent pace counting) were
+fixed in the v5/v6 stack above and demonstrated live. What remains
+documented rather than patched:
 
-- **No per-request cancel.** A verdict cannot be amended (the
-  registry accepts exactly one), and neither the owner nor the
-  recovery key can cancel a single queued withdrawal — the only
-  brake is veto (via a verdict) or freezing the whole vault. A
-  request that can never execute (e.g. a recipient that cannot
-  receive ETH) keeps its `pendingTotal` reservation locked.
-- **The RSC trusts the registry's (chainId, vault) pair as-is.**
-  Withdrawal logs are checked against the watched-vault table;
-  verdict logs are checked only for coming from the registry.
-  A verdict posted for an unwatched pair would still trigger a
-  freeze-all. Only the verdictWriter key can post verdicts, so
-  this is a misconfiguration surface, not an external attack —
-  but the asymmetry is real.
-- **Pace counting is not idempotent.** The RSC records each seen
-  request but does not skip duplicates, so a duplicated log
-  delivery (e.g. after a watchVault re-point) would count twice
-  toward the pace freeze. No duplicate delivery has been observed
-  on this deployment; the failure direction is an early freeze,
-  which is the safe direction.
+- **Verdicts are final.** The registry accepts exactly one verdict
+  per request; a wrong score cannot be amended, only acted around
+  (recovery unfreeze; the veto itself is permanent for that
+  request).
+- **Owner rotation does not defeat a compromised owner.** Recovery
+  can propose a new owner, but the current owner can cancel any
+  proposal — rotation is a lost-key remedy, not a compromise
+  remedy. A compromised owner is bounded by the queue, the cap,
+  the model and the pace guard, not by rotation.
+- **Feature history counts requests, not executions.** A vetoed or
+  cancelled request still makes its destination "seen" for later
+  feature computation, because `first_seen` is defined over past
+  requests. This is a modelling choice, disclosed here; replay
+  reproduces it exactly.
 - **Worker delivery depends on the worker process being alive.**
   Posting failures inside a run are retried (the scan cursor never
   advances past an unposted verdict, and a verdict counts only when

@@ -41,23 +41,32 @@ VERDICT_ABI = [{
 SEV = {0: "LOW", 1: "MEDIUM", 2: "HIGH"}
 
 
-def scan(event, from_block, to_block, chunk=49):
+def scan(event, from_block, to_block, chunk=199):
     import time
+
+    def fetch(start, end):
+        # One range, with retries; on persistent failure, split the
+        # range in half (some providers cap the block range below the
+        # default chunk) and fetch each half instead.
+        for attempt in range(4):
+            try:
+                return event.get_logs(from_block=start, to_block=end)
+            except Exception as e:  # noqa: BLE001
+                if "pruned" in str(e):
+                    print(f"  (skipping pruned range {start}-{end})")
+                    return []
+                if attempt == 3:
+                    if end - start >= 49:
+                        mid = (start + end) // 2
+                        return fetch(start, mid) + fetch(mid + 1, end)
+                    raise
+                time.sleep(2 * (attempt + 1))  # transient RPC/proxy errors
+        return []
 
     out, start = [], from_block
     while start <= to_block:
         end = min(start + chunk, to_block)
-        for attempt in range(4):
-            try:
-                out += event.get_logs(from_block=start, to_block=end)
-                break
-            except Exception as e:  # noqa: BLE001
-                if "pruned" in str(e):
-                    print(f"  (skipping pruned range {start}-{end})")
-                    break
-                if attempt == 3:
-                    raise
-                time.sleep(2 * (attempt + 1))  # transient RPC/proxy errors
+        out += fetch(start, end)
         start = end + 1
     return out
 

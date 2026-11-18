@@ -21,12 +21,12 @@ sections verbatim. Key claims, all verifiable on-chain:
 - Honest eval: rule-vs-model numbers published as computed,
   including the model's false alarms (eval/RESULTS.md).
 
-## Contract addresses (post-audit stack, 2026-11-18)
+## Contract addresses (current stack: GuardedVault v5 / SentinelReactive v6, 2026-11-18)
 - VerdictRegistry — Base Sepolia: 0x0e55C8F84F44336b766Af8469b74d5163abB7F32
-- SentinelReactive (RSC) — Lasna: 0x48FA2842cCCbe70EEfD9FE094331af4f932A35A7
-- GuardedVault — Base Sepolia: 0xA1eDD9dBBAE962B41950F3314660e966bBEa703b
-- GuardedVault — Ethereum Sepolia: 0x3C17336A3E7f929FEF4608fB053f539dF734B535
-- GuardedVault — Unichain Sepolia: 0x464F45Cf2bF16B1b8E454eaCDD2ff68002E58bce
+- SentinelReactive (RSC) — Lasna: 0x00eC75c154EF87A38836819594c0F2898cF3Eb06
+- GuardedVault — Base Sepolia: 0x1Eb81CC9a9b9760D1DA575C268c47f727369c6f4
+- GuardedVault — Ethereum Sepolia: 0xd8D640DeEcD14DA46b78e29285cdc682BA118Ad6
+- GuardedVault — Unichain Sepolia: 0xAf17d1e294c35cA4eFE35c58B201D6F95Aef3DE4
 - modelHash: 0x0dfa7cb105d6c64d39889abc4926fc514b0cccf075c9e3071ddff893fcfd45c5 (model iforest-3)
 
 ## Transaction links (full loop evidence)
@@ -35,8 +35,9 @@ veto / freeze, plus the failed negative tests: non-owner request,
 owner unfreeze attempt, zero-amount request).
 
 ## Demo video
-2-3 min, English subtitles, no owner voice. Script: docs/demo-runbook.md.
-Local file ready: video/demo.mp4 (2m22s, 1280x720, English narration + burned-in captions; v4 rebuild 2026-11-18 with animated scenes and explorer-data cards from the evidence run in docs/deployments.md). Upload to YouTube (unlisted) or DoraHacks and paste the URL here.
+2-3 min, English subtitles, no owner voice. (docs/demo-runbook.md is
+historical — it describes the pre-audit shoot.)
+Local file ready: video/demo.mp4 (1280x720, English narration + burned-in captions; v6 rebuild 2026-11-18 with animated scenes and explorer-data cards from the v5/v6 evidence run in docs/deployments.md). Upload to YouTube (unlisted) or DoraHacks and paste the URL here.
 
 ## Repo
 [GitHub URL to fill after the owner creates/pushes — public, MIT]

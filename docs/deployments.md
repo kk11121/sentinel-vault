@@ -536,12 +536,19 @@ check (M1) and idempotent pace counting (M6). Forge suite: 45 tests.
   veto + freeze-all — its freeze landed while a Unichain request was
   in flight, which reverted VaultFrozen (tx
   0x013b9bf27ee0581e05b7e336d162c7379b9e728dd5d983334e6d096d4f857dc8);
-  requests 2 and 3 (0.001 / 0.0005 to the owner) scored MEDIUM 624
-  (verdict tx
+  request 2 (0.001 to the owner) scored MEDIUM 624 (verdict tx
   0x98ef6e728f86a251dc807aaebbe5a6c18c76c30936d9b8987e38df5327a17716,
-  request->verdict 40 s) and MEDIUM 627 (verdict tx
-  0x24ecf1156640dc778e0ed81266ce670a7390311820b3efc047444ca4b02724cc):
-  veto-only, no freeze anywhere, verified on-chain after each.
+  request->verdict 40 s): veto-only (callback tx
+  0x9c2206e572e6eed55e02b0795137e8bc334c4d894aed508c675e370f05b9cf01),
+  no freeze anywhere, verified on-chain. Request 3 (0.0005 to the
+  owner) scored MEDIUM 627 (verdict tx
+  0x24ecf1156640dc778e0ed81266ce670a7390311820b3efc047444ca4b02724cc)
+  — the second MEDIUM for the same vault inside the escalation
+  window, so the RSC escalated it: veto + freeze-all, with the
+  Escalated event in Lasna tx
+  0xb931eedff1fe486247c331a9cc363171280e4c42bf0125e51660abf60e847311.
+  The escalation path is therefore also demonstrated live on this
+  stack. Recovery unfreezes followed.
 - Unichain: request 1 (0.0005 to the owner, tx
   0xec06a071c6b9107d26fb6906cf0c6ec0f3a5886ad520a24bd08c06c69ccfdb88)
   LOW 611 (verdict tx
@@ -549,5 +556,8 @@ check (M1) and idempotent pace counting (M6). Forge suite: 45 tests.
   -> executed (tx
   0x857caa44e38d9f09e3a43e3cb24053a560e066f54167e52c1612f17873618483).
 - Final state: all vaults unfrozen; RSC reserves 1.02 lREACT. The
-  previous (v4/v5) vaults were drained back to the deployer and are
-  superseded.
+  previous (v4/v5) stack is superseded: its Base vault was drained
+  back to the deployer; small testnet remainders in its Sepolia
+  (0.0035 ETH) and Unichain (0.011 ETH) vaults were left in place
+  after a drain attempt ran into the old stack's own freeze state —
+  valueless testnet dust, not worth further transactions.
