@@ -9,10 +9,16 @@ import { OmniCallback } from "../base/OmniCallback.sol";
 ///                      It cannot unfreeze, reconfigure, or move funds except
 ///                      by requesting a withdrawal like any other.
 ///           recovery — the offline key. The only key that can unfreeze or
-///                      change waitSeconds / largeThreshold / instantCap.
+///                      change waitSeconds / largeThreshold / instantCap, and
+///                      the only key that can PROPOSE a new owner. A proposal
+///                      takes effect after OWNER_ROTATION_DELAY, and the
+///                      current owner can cancel it — so a compromised
+///                      recovery key cannot seize the vault quickly, while a
+///                      merely LOST owner key no longer strands the funds.
 ///         Withdrawal flow:
 ///           - Requests are owner-only (a request names its destination at
 ///             request time; execution is then permissionless and safe).
+///             Zero amounts and self/zero destinations are rejected.
 ///           - Amounts at or above `largeThreshold` enter the waiting queue
 ///             and become executable by anyone after `waitSeconds`
 ///             (fail-open: silence from the AI never blocks them).
@@ -22,6 +28,11 @@ import { OmniCallback } from "../base/OmniCallback.sol";
 ///             into the waiting queue instead, where the Sentinel can veto
 ///             it. This closes the "split into small pieces and drain
 ///             before the verdict arrives" hole.
+///           - Pending (unexecuted, unvetoed) amounts are RESERVED: a new
+///             request may not exceed balance minus pendingTotal, so every
+///             accepted request stays executable. (Callback fee pulls via
+///             pay() can still reduce the balance; the check therefore
+///             clamps at zero instead of assuming the invariant.)
 ///           - A Reactive callback can veto a queued withdrawal (MEDIUM
 ///             verdict) or freeze the whole vault (HIGH verdict).
 ///             freeze/veto are reachable only through this chain's callback
@@ -37,8 +48,12 @@ contract GuardedVault is OmniCallback {
         bool executed;
     }
 
+    uint256 public constant OWNER_ROTATION_DELAY = 48 hours;
+
     address public owner;
     address public recovery;
+    address public pendingOwner;
+    uint256 public ownerRotationReadyAt;
     bool public frozen;
     uint256 public waitSeconds;
     uint256 public largeThreshold;
@@ -46,6 +61,7 @@ contract GuardedVault is OmniCallback {
     uint256 public instantWindowSeconds;
     uint256 public instantWindowStart;
     uint256 public instantSpentInWindow;
+    uint256 public pendingTotal;
     uint256 public nextRequestId = 1;
 
     mapping(uint256 => Withdrawal) public withdrawals;
@@ -61,6 +77,9 @@ contract GuardedVault is OmniCallback {
     event WaitUpdated(uint256 waitSeconds);
     event ThresholdUpdated(uint256 largeThreshold);
     event InstantCapUpdated(uint256 instantCap, uint256 instantWindowSeconds);
+    event OwnerRotationProposed(address indexed newOwner, uint256 readyAt);
+    event OwnerRotationCancelled(address indexed cancelledOwner);
+    event OwnerRotated(address indexed oldOwner, address indexed newOwner);
 
     error NotOwner();
     error NotRecovery();
@@ -71,6 +90,12 @@ contract GuardedVault is OmniCallback {
     error Vetoed();
     error NotReady();
     error TransferFailed();
+    // ZeroAddress is inherited from OmniCallback.
+    error ZeroAmount();
+    error InvalidDestination();
+    error ZeroWindow();
+    error NoRotationPending();
+    error RotationNotReady();
 
     constructor(
         address owner_,
@@ -82,6 +107,8 @@ contract GuardedVault is OmniCallback {
         uint256 instantCap_,
         uint256 instantWindowSeconds_
     ) payable OmniCallback(callbackProxy_, callbackSender_) {
+        if (owner_ == address(0) || recovery_ == address(0)) revert ZeroAddress();
+        if (instantWindowSeconds_ == 0) revert ZeroWindow();
         owner = owner_;
         recovery = recovery_;
         waitSeconds = waitSeconds_;
@@ -110,10 +137,47 @@ contract GuardedVault is OmniCallback {
         emit ThresholdUpdated(largeThreshold_);
     }
 
+    /// @notice Change the instant cap. Changing the cap resets the current
+    ///         window, so the new cap applies to a fresh window rather than
+    ///         being measured against the old window's spend.
     function setInstantCap(uint256 instantCap_, uint256 instantWindowSeconds_) external onlyRecovery {
+        if (instantWindowSeconds_ == 0) revert ZeroWindow();
         instantCap = instantCap_;
         instantWindowSeconds = instantWindowSeconds_;
+        instantWindowStart = block.timestamp;
+        instantSpentInWindow = 0;
         emit InstantCapUpdated(instantCap_, instantWindowSeconds_);
+    }
+
+    /// @notice Propose a new owner (recovery only). Takes effect via
+    ///         finalizeOwnerRotation() after OWNER_ROTATION_DELAY unless
+    ///         the current owner cancels. This is the lost-owner-key path:
+    ///         recovery alone can never move funds, and a compromised
+    ///         recovery key gives the owner 48 hours to cancel.
+    function proposeOwner(address newOwner_) external onlyRecovery {
+        if (newOwner_ == address(0)) revert ZeroAddress();
+        pendingOwner = newOwner_;
+        ownerRotationReadyAt = block.timestamp + OWNER_ROTATION_DELAY;
+        emit OwnerRotationProposed(newOwner_, ownerRotationReadyAt);
+    }
+
+    function cancelOwnerRotation() external {
+        if (msg.sender != owner) revert NotOwner();
+        if (pendingOwner == address(0)) revert NoRotationPending();
+        address cancelled = pendingOwner;
+        pendingOwner = address(0);
+        ownerRotationReadyAt = 0;
+        emit OwnerRotationCancelled(cancelled);
+    }
+
+    function finalizeOwnerRotation() external {
+        if (pendingOwner == address(0)) revert NoRotationPending();
+        if (block.timestamp < ownerRotationReadyAt) revert RotationNotReady();
+        address old = owner;
+        owner = pendingOwner;
+        pendingOwner = address(0);
+        ownerRotationReadyAt = 0;
+        emit OwnerRotated(old, owner);
     }
 
     /// @notice Queue a withdrawal. Owner-only: the vault guards the owner's
@@ -124,7 +188,11 @@ contract GuardedVault is OmniCallback {
     function requestWithdrawal(address to_, uint256 amount_) external returns (uint256 requestId) {
         if (msg.sender != owner) revert NotOwner();
         if (frozen) revert VaultFrozen();
-        if (amount_ > address(this).balance) revert InsufficientBalance();
+        if (amount_ == 0) revert ZeroAmount();
+        if (to_ == address(0) || to_ == address(this)) revert InvalidDestination();
+        uint256 balance = address(this).balance;
+        uint256 freeBalance = balance > pendingTotal ? balance - pendingTotal : 0;
+        if (amount_ > freeBalance) revert InsufficientBalance();
         requestId = nextRequestId++;
         uint256 readyAt;
         if (amount_ >= largeThreshold) {
@@ -140,6 +208,7 @@ contract GuardedVault is OmniCallback {
         withdrawals[requestId] = Withdrawal({
             requester: msg.sender, to: to_, amount: amount_, readyAt: readyAt, vetoed: false, executed: false
         });
+        pendingTotal += amount_;
         emit WithdrawalRequested(requestId, msg.sender, to_, amount_, readyAt);
     }
 
@@ -165,23 +234,26 @@ contract GuardedVault is OmniCallback {
         if (w.vetoed) revert Vetoed();
         if (block.timestamp < w.readyAt) revert NotReady();
         w.executed = true;
+        pendingTotal -= w.amount;
         (bool ok,) = payable(w.to).call{ value: w.amount }("");
         if (!ok) revert TransferFailed();
         emit WithdrawalExecuted(requestId_, w.to, w.amount);
     }
 
-    /// @notice Veto one queued withdrawal. Callback-only (MEDIUM verdict).
-    ///         Idempotent: a duplicate veto, or a veto arriving after
-    ///         execution, does not revert — a failed callback would only
-    ///         add a confusing Fail entry to the evidence trail.
+    /// @notice Veto one queued withdrawal. Callback-only (MEDIUM verdict,
+    ///         or the veto half of a HIGH verdict). Idempotent: a duplicate
+    ///         veto, or a veto arriving after execution, does not revert —
+    ///         a failed callback would only add a confusing Fail entry to
+    ///         the evidence trail.
     function veto(address reactive_, uint256 requestId_)
         external
         onlyServiceProvider
         onlyCallbackSender(reactive_)
     {
         Withdrawal storage w = withdrawals[requestId_];
-        if (w.amount == 0 || w.executed) return;
+        if (w.amount == 0 || w.executed || w.vetoed) return;
         w.vetoed = true;
+        pendingTotal -= w.amount;
         emit WithdrawalVetoed(requestId_, reactive_);
     }
 

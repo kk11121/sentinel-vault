@@ -13,8 +13,10 @@ abstract contract OmniCallback {
 
     error NotAuthorized();
     error CallbackNotAuthorized();
+    error ZeroAddress();
 
     constructor(address callbackProxy_, address callbackSender_) payable {
+        if (callbackProxy_ == address(0) || callbackSender_ == address(0)) revert ZeroAddress();
         _CALLBACK_PROXY = callbackProxy_;
         _CALLBACK_SENDER = callbackSender_;
     }
@@ -30,6 +32,10 @@ abstract contract OmniCallback {
     }
 
     /// @notice Called by the callback proxy to collect payment for delivery.
+    /// @dev The amount is named by the proxy under the Reactive fee model;
+    ///      no cap, for the same reason as OmniReactive.pay — a cap below
+    ///      the real fee would break callback delivery. Documented as a
+    ///      platform trust assumption in the README.
     function pay(uint256 amount_) external onlyServiceProvider {
         (bool ok,) = payable(_CALLBACK_PROXY).call{ value: amount_ }("");
         require(ok, "pay failed");

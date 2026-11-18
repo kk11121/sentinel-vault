@@ -9,8 +9,8 @@ import { LogRecord } from "../interfaces/IReactive.sol";
 /// @notice The RSC does two jobs no single-chain component can do:
 ///           1. Enforcement relay with least privilege: it watches the
 ///              VerdictRegistry on Base Sepolia and turns verdicts into
-///              veto/freeze callbacks on three chains, so the AI's key
-///              only ever writes on one chain and holds no freeze power.
+///              veto/freeze callbacks on every watched chain, so the AI's
+///              key only ever writes on one chain and holds no freeze power.
 ///           2. Cross-chain pace guard: it also watches WithdrawalRequested
 ///              on every vault. A single vault cannot see the aggregate
 ///              pace across chains; if requests across ALL vaults exceed
@@ -19,13 +19,17 @@ import { LogRecord } from "../interfaces/IReactive.sol";
 ///         Verdict policy (A' design):
 ///           LOW    -> nothing (the withdrawal executes fail-open).
 ///           MEDIUM -> veto that one withdrawal on its origin vault.
-///           HIGH   -> veto + freeze every configured vault.
-///           A second MEDIUM for the same vault within ESCALATION_WINDOW
-///           escalates to HIGH (preemptive freeze, reason ESCALATED).
-///         A MEDIUM verdict naming a request this RSC has never seen is
-///         ignored (it cannot veto what does not exist); a HIGH verdict
-///         freezes regardless, but is flagged UnverifiedVerdict — a freeze
-///         is recoverable, a missed one may not be.
+///           HIGH   -> veto that withdrawal AND freeze every watched vault.
+///           A second MEDIUM for the same vault (on the same chain) within
+///           ESCALATION_WINDOW escalates to HIGH (preemptive freeze,
+///           reason ESCALATED) — and also vetoes its own withdrawal.
+///         Delivery order between the origin chain and the registry chain
+///         is NOT guaranteed, so a verdict that arrives before its
+///         WithdrawalRequested is not dropped: it is recorded as a
+///         pending veto and applied the moment the request is seen. A
+///         HIGH verdict freezes immediately regardless (a freeze is
+///         recoverable, a missed one may not be) and is flagged
+///         UnverifiedVerdict when its request has not been seen yet.
 ///         Deployment order: deploy this first (it subscribes to the
 ///         registry in its constructor), then the vaults with this address
 ///         as callback sender, then watchVault() for each vault.
@@ -48,10 +52,21 @@ contract SentinelReactive is OmniReactive {
 
     // destination chainId => vault address (0 = not configured)
     mapping(uint256 => address) public vaults;
-    // vault => timestamp of the latest MEDIUM verdict against it
-    mapping(address => uint256) public lastMediumAt;
+    // vault address => its chainId (routing for callbacks)
+    mapping(address => uint256) public vaultChain;
+    // every chainId ever passed to watchVault, for _freezeAll
+    uint256[] public watchedChains;
+    mapping(uint256 => bool) internal chainListed;
+    // keccak256(abi.encode(chainId, vault)) => latest MEDIUM timestamp.
+    // Keyed per (chain, vault): the same vault address deployed on two
+    // chains must never share escalation state.
+    mapping(bytes32 => uint256) public lastMediumAt;
     // keccak256(abi.encode(chainId, vault, requestId)) => request observed
     mapping(bytes32 => bool) public knownRequests;
+    // keccak256(abi.encode(chainId, vault, requestId)) => severity of a
+    // verdict that arrived before its request (0 = none). Applied when
+    // the request is seen.
+    mapping(bytes32 => uint8) public pendingVetoes;
 
     uint256 public paceWindowStart;
     uint256 public paceCount;
@@ -64,14 +79,18 @@ contract SentinelReactive is OmniReactive {
     event RequestSeen(uint256 indexed chainId, address indexed vault, uint256 indexed requestId);
     event VerdictIgnored(uint256 indexed requestId, uint8 severity);
     event UnverifiedVerdict(uint256 indexed chainId, address indexed vault, uint256 indexed requestId, uint8 severity);
+    event PendingVetoRecorded(uint256 indexed chainId, address indexed vault, uint256 indexed requestId, uint8 severity);
+    event PendingVetoApplied(uint256 indexed chainId, address indexed vault, uint256 indexed requestId, uint8 severity);
     event VetoRequested(uint256 indexed chainId, address indexed vault, uint256 indexed requestId);
     event FreezeRequested(uint256 indexed chainId, address indexed vault, uint256 indexed requestId);
-    event Escalated(address indexed vault, uint256 indexed requestId);
+    event Escalated(uint256 indexed chainId, address indexed vault, uint256 indexed requestId);
     event PaceFreeze(uint256 count, uint256 windowStart);
 
     error NotOwner();
+    error ZeroAddress();
 
     constructor(address registry_) payable {
+        if (registry_ == address(0)) revert ZeroAddress();
         owner = msg.sender;
         registry = registry_;
         verdictTopic0 = uint256(keccak256("VerdictPosted(uint256,address,uint256,uint8,uint256,bytes32,bytes32)"));
@@ -84,15 +103,37 @@ contract SentinelReactive is OmniReactive {
 
     /// @notice Register a vault: remember it for callback routing AND
     ///         subscribe to its WithdrawalRequested events on its chain.
+    ///         Idempotent for the same (chainId, vault) pair — a duplicate
+    ///         registration must not create a duplicate subscription,
+    ///         which would double-count the pace guard.
     function watchVault(uint256 chainId_, address vault_) external {
         if (msg.sender != owner) revert NotOwner();
+        if (vault_ == address(0)) revert ZeroAddress();
+        if (vaults[chainId_] == vault_) return;
+        address previous = vaults[chainId_];
+        if (previous != address(0) && vaultChain[previous] == chainId_) {
+            delete vaultChain[previous];
+        }
         vaults[chainId_] = vault_;
+        vaultChain[vault_] = chainId_;
+        if (!chainListed[chainId_]) {
+            chainListed[chainId_] = true;
+            watchedChains.push(chainId_);
+        }
         SYSTEM.subscribe(chainId_, vault_, withdrawalTopic0, REACTIVE_IGNORE, REACTIVE_IGNORE, REACTIVE_IGNORE);
         emit VaultSet(chainId_, vault_);
     }
 
+    function watchedChainCount() external view returns (uint256) {
+        return watchedChains.length;
+    }
+
     function requestKey(uint256 chainId_, address vault_, uint256 requestId_) public pure returns (bytes32) {
         return keccak256(abi.encode(chainId_, vault_, requestId_));
+    }
+
+    function vaultKey(uint256 chainId_, address vault_) public pure returns (bytes32) {
+        return keccak256(abi.encode(chainId_, vault_));
     }
 
     /// @notice System-contract entry point for subscribed logs.
@@ -108,8 +149,21 @@ contract SentinelReactive is OmniReactive {
         // Only trust logs actually emitted by the watched vault on its chain.
         if (log_.contractAddress != vaults[log_.chainId]) return;
         uint256 requestId = log_.topic1;
-        knownRequests[requestKey(log_.chainId, log_.contractAddress, requestId)] = true;
+        bytes32 key = requestKey(log_.chainId, log_.contractAddress, requestId);
+        knownRequests[key] = true;
         emit RequestSeen(log_.chainId, log_.contractAddress, requestId);
+
+        // A verdict that beat its own request here is applied now.
+        uint8 pending = pendingVetoes[key];
+        if (pending != 0) {
+            delete pendingVetoes[key];
+            emit PendingVetoApplied(log_.chainId, log_.contractAddress, requestId, pending);
+            if (pending == SEVERITY_HIGH) {
+                _sendVeto(log_.chainId, log_.contractAddress, requestId);
+            } else if (pending == SEVERITY_MEDIUM) {
+                _applyMedium(log_.chainId, log_.contractAddress, requestId);
+            }
+        }
 
         if (block.timestamp >= paceWindowStart + PACE_WINDOW) {
             paceWindowStart = block.timestamp;
@@ -133,53 +187,77 @@ contract SentinelReactive is OmniReactive {
         address vault = address(uint160(log_.topic2));
         uint256 requestId = log_.topic3;
         (uint8 severity,,,) = abi.decode(log_.data, (uint8, uint256, bytes32, bytes32));
-        bool known = knownRequests[requestKey(chainId, vault, requestId)];
+        bytes32 key = requestKey(chainId, vault, requestId);
+        bool known = knownRequests[key];
 
         if (severity == SEVERITY_HIGH) {
-            if (!known) emit UnverifiedVerdict(chainId, vault, requestId, severity);
+            if (!known) {
+                emit UnverifiedVerdict(chainId, vault, requestId, severity);
+                _recordPending(key, chainId, vault, requestId, SEVERITY_HIGH);
+            } else {
+                // The flagged withdrawal itself is vetoed, not just paused:
+                // after a recovery unfreeze it must stay dead.
+                _sendVeto(chainId, vault, requestId);
+            }
             _freezeAll(requestId, REASON_HIGH);
             return;
         }
         if (severity == SEVERITY_MEDIUM) {
             if (!known) {
                 emit UnverifiedVerdict(chainId, vault, requestId, severity);
-                emit VerdictIgnored(requestId, severity);
+                _recordPending(key, chainId, vault, requestId, SEVERITY_MEDIUM);
                 return;
             }
-            uint256 last = lastMediumAt[vault];
-            lastMediumAt[vault] = block.timestamp;
-            if (last != 0 && block.timestamp - last <= ESCALATION_WINDOW) {
-                emit Escalated(vault, requestId);
-                _freezeAll(requestId, REASON_ESCALATED);
-                return;
-            }
-            (uint256 originChain, bool found) = _chainOf(vault);
-            if (found) {
-                bytes memory payload = abi.encodeWithSignature("veto(address,uint256)", address(0), requestId);
-                _requestCallback(originChain, vault, payload);
-                emit VetoRequested(originChain, vault, requestId);
-            }
+            _applyMedium(chainId, vault, requestId);
             return;
         }
         emit VerdictIgnored(requestId, severity);
     }
 
-    function _chainOf(address vault_) internal view returns (uint256, bool) {
-        uint256[3] memory chains = [uint256(84532), uint256(11155111), uint256(1301)];
-        for (uint256 i = 0; i < chains.length; i++) {
-            if (vaults[chains[i]] == vault_) return (chains[i], true);
+    /// @notice MEDIUM policy for a request known to exist: record the
+    ///         strike, escalate on a second strike within the window
+    ///         (veto + freeze), otherwise veto just this withdrawal.
+    function _applyMedium(uint256 chainId_, address vault_, uint256 requestId_) internal {
+        bytes32 vKey = vaultKey(chainId_, vault_);
+        uint256 last = lastMediumAt[vKey];
+        lastMediumAt[vKey] = block.timestamp;
+        if (last != 0 && block.timestamp - last <= ESCALATION_WINDOW) {
+            emit Escalated(chainId_, vault_, requestId_);
+            _sendVeto(chainId_, vault_, requestId_);
+            _freezeAll(requestId_, REASON_ESCALATED);
+            return;
         }
-        return (0, false);
+        _sendVeto(chainId_, vault_, requestId_);
+    }
+
+    function _recordPending(
+        bytes32 key_,
+        uint256 chainId_,
+        address vault_,
+        uint256 requestId_,
+        uint8 severity_
+    ) internal {
+        // Keep the stronger severity if both arrive early.
+        if (pendingVetoes[key_] < severity_) {
+            pendingVetoes[key_] = severity_;
+        }
+        emit PendingVetoRecorded(chainId_, vault_, requestId_, severity_);
+    }
+
+    function _sendVeto(uint256 chainId_, address vault_, uint256 requestId_) internal {
+        bytes memory payload = abi.encodeWithSignature("veto(address,uint256)", address(0), requestId_);
+        _requestCallback(chainId_, vault_, payload);
+        emit VetoRequested(chainId_, vault_, requestId_);
     }
 
     function _freezeAll(uint256 requestId_, bytes32 reason_) internal {
-        uint256[3] memory chains = [uint256(84532), uint256(11155111), uint256(1301)];
-        for (uint256 i = 0; i < chains.length; i++) {
-            address vault = vaults[chains[i]];
+        for (uint256 i = 0; i < watchedChains.length; i++) {
+            uint256 chainId = watchedChains[i];
+            address vault = vaults[chainId];
             if (vault == address(0)) continue;
             bytes memory payload = abi.encodeWithSignature("freeze(address,bytes32)", address(0), reason_);
-            _requestCallback(chains[i], vault, payload);
-            emit FreezeRequested(chains[i], vault, requestId_);
+            _requestCallback(chainId, vault, payload);
+            emit FreezeRequested(chainId, vault, requestId_);
         }
     }
 

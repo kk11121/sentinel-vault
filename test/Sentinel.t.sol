@@ -7,12 +7,22 @@ import { GuardedVault } from "../src/contracts/GuardedVault.sol";
 import { SentinelReactive } from "../src/contracts/SentinelReactive.sol";
 import { ISystemContract } from "../src/interfaces/ISystemContract.sol";
 import { LogRecord } from "../src/interfaces/IReactive.sol";
+import { OmniCallback } from "../src/base/OmniCallback.sol";
 
 contract SystemStub {
     uint256 public callbackCount;
+    uint256 public subscribeCount;
+    bytes[] public payloads;
+    address[] public recipients;
 
-    function requestCallbackV_1_0(ISystemContract.CallbackConfiguration_V_1_0 memory) external {
+    function subscribe(uint256, address, uint256, uint256, uint256, uint256) external {
+        subscribeCount++;
+    }
+
+    function requestCallbackV_1_0(ISystemContract.CallbackConfiguration_V_1_0 memory config_) external {
         callbackCount++;
+        payloads.push(config_.payload);
+        recipients.push(config_.recipient);
     }
 
     function debts(address) external pure returns (uint256) {
@@ -32,6 +42,9 @@ contract SentinelTest is Test {
     address user = address(0x555E12);
 
     uint256 constant VAULT_CHAIN = 11155111; // the vault lives on Sepolia in these tests
+
+    bytes4 constant VETO_SEL = bytes4(keccak256("veto(address,uint256)"));
+    bytes4 constant FREEZE_SEL = bytes4(keccak256("freeze(address,bytes32)"));
 
     VerdictRegistry registry;
     GuardedVault vault;
@@ -53,18 +66,41 @@ contract SentinelTest is Test {
         return SystemStub(payable(system)).callbackCount();
     }
 
+    function _payloadSel(uint256 i) internal view returns (bytes4 sel) {
+        bytes memory p = SystemStub(payable(system)).payloads(i);
+        assembly {
+            sel := mload(add(p, 32))
+        }
+    }
+
     function _verdictLog(uint256 requestId, address vault_, uint8 severity) internal view returns (LogRecord memory log_) {
+        return _verdictLogOn(VAULT_CHAIN, requestId, vault_, severity);
+    }
+
+    function _verdictLogOn(uint256 chainId, uint256 requestId, address vault_, uint8 severity)
+        internal
+        view
+        returns (LogRecord memory log_)
+    {
         log_.chainId = 84532;
         log_.contractAddress = address(registry);
         log_.topic0 = uint256(keccak256("VerdictPosted(uint256,address,uint256,uint8,uint256,bytes32,bytes32)"));
-        log_.topic1 = VAULT_CHAIN;
+        log_.topic1 = chainId;
         log_.topic2 = uint256(uint160(vault_));
         log_.topic3 = requestId;
         log_.data = abi.encode(severity, uint256(900), bytes32(0), bytes32(0));
     }
 
     function _withdrawalLog(uint256 requestId, address vault_) internal view returns (LogRecord memory log_) {
-        log_.chainId = VAULT_CHAIN;
+        return _withdrawalLogOn(VAULT_CHAIN, requestId, vault_);
+    }
+
+    function _withdrawalLogOn(uint256 chainId, uint256 requestId, address vault_)
+        internal
+        view
+        returns (LogRecord memory log_)
+    {
+        log_.chainId = chainId;
         log_.contractAddress = vault_;
         log_.topic0 = uint256(keccak256("WithdrawalRequested(uint256,address,address,uint256,uint256)"));
         log_.topic1 = requestId;
@@ -90,6 +126,21 @@ contract SentinelTest is Test {
         vm.prank(writer);
         vm.expectRevert(VerdictRegistry.DuplicateVerdict.selector);
         registry.postVerdict(VAULT_CHAIN, address(vault), 1, 2, 900, bytes32(0), bytes32(0));
+    }
+
+    function test_setVerdictWriter_rotation() public {
+        address writer2 = address(0xCA7);
+        vm.prank(attacker);
+        vm.expectRevert(VerdictRegistry.NotOwner.selector);
+        registry.setVerdictWriter(writer2);
+        vm.prank(owner);
+        registry.setVerdictWriter(writer2);
+        vm.prank(writer);
+        vm.expectRevert(VerdictRegistry.NotVerdictWriter.selector);
+        registry.postVerdict(VAULT_CHAIN, address(vault), 1, 0, 100, bytes32(0), bytes32(0));
+        vm.prank(writer2);
+        registry.postVerdict(VAULT_CHAIN, address(vault), 1, 0, 100, bytes32(0), bytes32(0));
+        assertTrue(registry.hasVerdict(VAULT_CHAIN, address(vault), 1));
     }
 
     // ---------- GuardedVault: permissions ----------
@@ -158,6 +209,102 @@ contract SentinelTest is Test {
         assertTrue(vault.frozen());
     }
 
+    function test_constructor_zeroChecks() public {
+        vm.expectRevert(OmniCallback.ZeroAddress.selector);
+        new GuardedVault(address(0), recovery, proxy, address(rsc), 600, 0.02 ether, 0.008 ether, 1 hours);
+        vm.expectRevert(OmniCallback.ZeroAddress.selector);
+        new GuardedVault(owner, address(0), proxy, address(rsc), 600, 0.02 ether, 0.008 ether, 1 hours);
+        vm.expectRevert(GuardedVault.ZeroWindow.selector);
+        new GuardedVault(owner, recovery, proxy, address(rsc), 600, 0.02 ether, 0.008 ether, 0);
+    }
+
+    function test_pay_onlyProxy() public {
+        vm.deal(proxy, 0 ether);
+        vm.prank(proxy);
+        vault.pay(0.1 ether);
+        assertEq(proxy.balance, 0.1 ether);
+        vm.prank(attacker);
+        vm.expectRevert();
+        vault.pay(0.1 ether);
+    }
+
+    // ---------- GuardedVault: request validation (audit F5/F9/F13) ----------
+
+    function test_request_zeroAmountReverts() public {
+        vm.prank(owner);
+        vm.expectRevert(GuardedVault.ZeroAmount.selector);
+        vault.requestWithdrawal(user, 0);
+    }
+
+    function test_request_invalidDestinationReverts() public {
+        vm.prank(owner);
+        vm.expectRevert(GuardedVault.InvalidDestination.selector);
+        vault.requestWithdrawal(address(0), 0.001 ether);
+        vm.prank(owner);
+        vm.expectRevert(GuardedVault.InvalidDestination.selector);
+        vault.requestWithdrawal(address(vault), 0.001 ether);
+    }
+
+    function test_pendingReservation_aggregate() public {
+        // Balance is 1 ETH. Two queued 0.5 ETH requests reserve the whole
+        // balance; a third request of any size must fail until one of the
+        // pending requests resolves.
+        vm.startPrank(owner);
+        uint256 idA = vault.requestWithdrawal(user, 0.5 ether);
+        uint256 idB = vault.requestWithdrawal(user, 0.5 ether);
+        vm.expectRevert(GuardedVault.InsufficientBalance.selector);
+        vault.requestWithdrawal(user, 0.1 ether);
+        vm.stopPrank();
+        assertEq(vault.pendingTotal(), 1 ether);
+        // Executing A frees balance but B still reserves the rest.
+        vm.warp(block.timestamp + 601);
+        vault.executeWithdrawal(idA);
+        assertEq(vault.pendingTotal(), 0.5 ether);
+        vm.prank(owner);
+        vm.expectRevert(GuardedVault.InsufficientBalance.selector);
+        vault.requestWithdrawal(user, 0.1 ether);
+        // Vetoing B releases its reservation entirely.
+        vm.prank(proxy);
+        vault.veto(address(rsc), idB);
+        assertEq(vault.pendingTotal(), 0);
+        vm.prank(owner);
+        vault.requestWithdrawal(user, 0.4 ether);
+        assertEq(vault.pendingTotal(), 0.4 ether);
+    }
+
+    // ---------- GuardedVault: owner rotation (audit F7) ----------
+
+    function test_ownerRotation_fullFlow() public {
+        address newOwner = address(0xBEEF1);
+        // Only recovery proposes.
+        vm.prank(owner);
+        vm.expectRevert(GuardedVault.NotRecovery.selector);
+        vault.proposeOwner(newOwner);
+        vm.prank(recovery);
+        vault.proposeOwner(newOwner);
+        assertEq(vault.pendingOwner(), newOwner);
+        // Too early to finalize.
+        vm.expectRevert(GuardedVault.RotationNotReady.selector);
+        vault.finalizeOwnerRotation();
+        // Owner can cancel.
+        vm.prank(owner);
+        vault.cancelOwnerRotation();
+        assertEq(vault.pendingOwner(), address(0));
+        // Propose again, wait out the delay, anyone finalizes.
+        vm.prank(recovery);
+        vault.proposeOwner(newOwner);
+        vm.warp(block.timestamp + 48 hours);
+        vault.finalizeOwnerRotation();
+        assertEq(vault.owner(), newOwner);
+        // The new owner can request; the old one cannot.
+        vm.prank(owner);
+        vm.expectRevert(GuardedVault.NotOwner.selector);
+        vault.requestWithdrawal(user, 0.001 ether);
+        vm.prank(newOwner);
+        uint256 id = vault.requestWithdrawal(user, 0.001 ether);
+        assertGt(id, 0);
+    }
+
     // ---------- GuardedVault: withdrawal flow ----------
 
     function test_largeWithdrawal_waitsThenExecutes() public {
@@ -202,6 +349,33 @@ contract SentinelTest is Test {
         assertEq(readyAt4, block.timestamp);
     }
 
+    function test_instantCap_exactEqualityIsInstant() public {
+        vm.startPrank(owner);
+        uint256 id1 = vault.requestWithdrawal(user, 0.004 ether);
+        uint256 id2 = vault.requestWithdrawal(user, 0.004 ether); // spent == cap exactly
+        uint256 id3 = vault.requestWithdrawal(user, 0.001 ether); // over: queues
+        vm.stopPrank();
+        (,,, uint256 readyAt2,,) = vault.withdrawals(id2);
+        assertEq(readyAt2, block.timestamp);
+        (,,, uint256 readyAt3,,) = vault.withdrawals(id3);
+        assertEq(readyAt3, block.timestamp + 600);
+        vault.executeWithdrawal(id1);
+        vault.executeWithdrawal(id2);
+    }
+
+    function test_setInstantCap_resetsWindow() public {
+        vm.startPrank(owner);
+        vault.requestWithdrawal(user, 0.003 ether);
+        vault.requestWithdrawal(user, 0.003 ether); // 0.006 of the 0.008 cap spent
+        vm.stopPrank();
+        vm.prank(recovery);
+        vault.setInstantCap(0.008 ether, 1 hours); // resets the window
+        vm.prank(owner);
+        uint256 id = vault.requestWithdrawal(user, 0.003 ether);
+        (,,, uint256 readyAt,,) = vault.withdrawals(id);
+        assertEq(readyAt, block.timestamp); // instant again under the fresh window
+    }
+
     function test_veto_blocksExecution() public {
         vm.prank(owner);
         uint256 id = vault.requestWithdrawal(attacker, 0.05 ether);
@@ -236,6 +410,20 @@ contract SentinelTest is Test {
         vault.requestWithdrawal(user, 0.001 ether);
     }
 
+    function test_executeWhileFrozen_reverts() public {
+        vm.prank(owner);
+        uint256 id = vault.requestWithdrawal(user, 0.05 ether);
+        vm.prank(proxy);
+        vault.freeze(address(rsc), bytes32("HIGH_VERDICT"));
+        vm.warp(block.timestamp + 601);
+        vm.expectRevert(GuardedVault.VaultFrozen.selector);
+        vault.executeWithdrawal(id);
+        // After a recovery unfreeze the (unvetoed) request executes.
+        vm.prank(recovery);
+        vault.unfreeze();
+        vault.executeWithdrawal(id);
+    }
+
     // ---------- SentinelReactive ----------
 
     function test_react_onlySystem() public {
@@ -249,21 +437,46 @@ contract SentinelTest is Test {
         rsc.react(_withdrawalLog(1, address(vault)));
         vm.prank(system);
         rsc.react(_verdictLog(1, address(vault), 1));
-        assertGt(rsc.lastMediumAt(address(vault)), 0);
+        assertGt(rsc.lastMediumAt(rsc.vaultKey(VAULT_CHAIN, address(vault))), 0);
         assertEq(_callbacks(), 1); // exactly one veto callback
+        assertEq(_payloadSel(0), VETO_SEL);
     }
 
-    function test_react_mediumUnknownRequest_ignored() public {
+    // F2: a MEDIUM that arrives before its request is buffered, not dropped.
+    function test_react_mediumBeforeRequest_appliedOnArrival() public {
         vm.prank(system);
         rsc.react(_verdictLog(99, address(vault), 1));
-        assertEq(rsc.lastMediumAt(address(vault)), 0);
-        assertEq(_callbacks(), 0);
+        assertEq(_callbacks(), 0); // nothing yet
+        assertEq(rsc.pendingVetoes(rsc.requestKey(VAULT_CHAIN, address(vault), 99)), 1);
+        vm.prank(system);
+        rsc.react(_withdrawalLog(99, address(vault)));
+        assertEq(_callbacks(), 1); // the veto fires on arrival
+        assertEq(_payloadSel(0), VETO_SEL);
+        assertEq(rsc.pendingVetoes(rsc.requestKey(VAULT_CHAIN, address(vault), 99)), 0);
     }
 
-    function test_react_highFreezes_evenUnknownRequest() public {
+    // F1: a HIGH vetoes its own request as well as freezing.
+    function test_react_highKnownRequest_vetoesAndFreezes() public {
+        vm.prank(system);
+        rsc.react(_withdrawalLog(5, address(vault)));
+        vm.prank(system);
+        rsc.react(_verdictLog(5, address(vault), 2));
+        assertEq(_callbacks(), 2); // veto + freeze (one vault watched)
+        assertEq(_payloadSel(0), VETO_SEL);
+        assertEq(_payloadSel(1), FREEZE_SEL);
+    }
+
+    // F1+F2: a HIGH for an unseen request freezes immediately and vetoes
+    // the request when it shows up.
+    function test_react_highUnknown_freezesNowVetoesOnArrival() public {
         vm.prank(system);
         rsc.react(_verdictLog(99, address(vault), 2));
-        assertEq(_callbacks(), 1); // one configured vault -> one freeze callback
+        assertEq(_callbacks(), 1); // freeze only, for now
+        assertEq(_payloadSel(0), FREEZE_SEL);
+        vm.prank(system);
+        rsc.react(_withdrawalLog(99, address(vault)));
+        assertEq(_callbacks(), 2); // the pending veto lands
+        assertEq(_payloadSel(1), VETO_SEL);
     }
 
     function test_react_verdictFromWrongSource_ignored() public {
@@ -285,7 +498,10 @@ contract SentinelTest is Test {
         rsc.react(_withdrawalLog(2, address(vault)));
         vm.prank(system);
         rsc.react(_verdictLog(2, address(vault), 1));
-        assertEq(_callbacks(), 2); // +1 freeze callback (one vault configured)
+        // Escalation now sends veto + freeze for the escalating request.
+        assertEq(_callbacks(), 3);
+        assertEq(_payloadSel(1), VETO_SEL);
+        assertEq(_payloadSel(2), FREEZE_SEL);
     }
 
     function test_noEscalation_afterOneHour() public {
@@ -305,7 +521,52 @@ contract SentinelTest is Test {
         rsc.react(_withdrawalLog(3, address(vault)));
         vm.prank(system);
         rsc.react(_verdictLog(3, address(vault), 1));
-        assertEq(_callbacks(), 3); // freeze adds exactly 1 (one vault)
+        assertEq(_callbacks(), 4); // veto + freeze (one vault)
+    }
+
+    // F3: the same vault address on two chains keeps separate escalation
+    // state and correct veto routing.
+    function test_sameVaultAddress_twoChains_noFalseEscalation() public {
+        uint256 chainB = 1301;
+        rsc.watchVault(chainB, address(vault)); // same address, other chain
+        // MEDIUM on chain A.
+        vm.prank(system);
+        rsc.react(_withdrawalLog(1, address(vault)));
+        vm.prank(system);
+        rsc.react(_verdictLog(1, address(vault), 1));
+        assertEq(_callbacks(), 1);
+        // MEDIUM for the same address on chain B within the hour: a veto
+        // routed to chain B, NOT an escalation.
+        vm.prank(system);
+        rsc.react(_withdrawalLogOn(chainB, 1, address(vault)));
+        vm.prank(system);
+        rsc.react(_verdictLogOn(chainB, 1, address(vault), 1));
+        assertEq(_callbacks(), 2);
+        assertEq(_payloadSel(1), VETO_SEL);
+        assertEq(SystemStub(payable(system)).recipients(1), address(vault));
+        // A second MEDIUM on chain A does escalate (veto + freeze x2 vaults).
+        vm.prank(system);
+        rsc.react(_withdrawalLog(2, address(vault)));
+        vm.prank(system);
+        rsc.react(_verdictLog(2, address(vault), 1));
+        assertEq(_callbacks(), 5);
+    }
+
+    // F4: a vault watched on a chain outside the original three is frozen too.
+    function test_fourthChainVault_frozenByHigh() public {
+        address vault4 = address(0xF04);
+        rsc.watchVault(999, vault4);
+        vm.prank(system);
+        rsc.react(_verdictLog(7, address(vault), 2)); // unknown HIGH on the known vault
+        assertEq(_callbacks(), 2); // freeze reaches both watched vaults
+    }
+
+    // F8: re-registering the same (chain, vault) must not re-subscribe.
+    function test_watchVault_idempotent() public {
+        uint256 subs = SystemStub(payable(system)).subscribeCount();
+        rsc.watchVault(VAULT_CHAIN, address(vault)); // duplicate
+        assertEq(SystemStub(payable(system)).subscribeCount(), subs);
+        assertEq(rsc.watchedChainCount(), 1);
     }
 
     function test_paceFreeze_afterLimit() public {
@@ -321,6 +582,24 @@ contract SentinelTest is Test {
         assertEq(_callbacks(), 1); // freeze-all: one callback per configured vault
         vm.prank(system);
         rsc.react(_withdrawalLog(12, address(vault))); // no repeated freeze storm
+        assertEq(_callbacks(), 1);
+    }
+
+    function test_paceWindow_resetsAfterHour() public {
+        for (uint256 i = 1; i <= 10; i++) {
+            vm.prank(system);
+            rsc.react(_withdrawalLog(i, address(vault)));
+        }
+        vm.warp(block.timestamp + 3601); // window slides
+        for (uint256 i = 11; i <= 20; i++) {
+            vm.prank(system);
+            rsc.react(_withdrawalLog(i, address(vault)));
+        }
+        assertFalse(rsc.paceFrozen());
+        assertEq(_callbacks(), 0);
+        vm.prank(system);
+        rsc.react(_withdrawalLog(21, address(vault))); // 11th in the new window
+        assertTrue(rsc.paceFrozen());
         assertEq(_callbacks(), 1);
     }
 }

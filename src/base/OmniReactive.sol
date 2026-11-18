@@ -26,17 +26,14 @@ abstract contract OmniReactive is IReactive {
     }
 
     /// @notice Called by the system contract to collect payment for execution.
+    /// @dev The amount is named by the system contract under the Reactive
+    ///      fee model; there is deliberately no cap here — a cap below the
+    ///      real fee would break reactive delivery. This is a documented
+    ///      platform trust assumption (see README), bounded in practice by
+    ///      this contract's balance and the reserves accounting.
     function pay(uint256 amount_) external onlySystem {
         (bool ok,) = payable(address(SYSTEM)).call{ value: amount_ }("");
         require(ok, "pay failed");
-    }
-
-    function _coverDebt() internal {
-        uint256 debt = SYSTEM.debts(address(this));
-        if (debt > 0) {
-            (bool ok,) = payable(address(SYSTEM)).call{ value: debt }("");
-            require(ok, "coverDebt failed");
-        }
     }
 
     receive() external payable virtual { }
