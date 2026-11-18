@@ -34,3 +34,32 @@
   its WithdrawalRequested is dropped permanently. Fix = RSC v5
   (veto-on-HIGH + pending-veto buffer + chain-aware keys + dynamic
   freeze list), pending the owner's go-ahead.
+
+## 2026-11-18 — Audit fix programme executed (owner ordered "fix everything")
+- All findings F1-F13 fixed: GuardedVault v4 (aggregate pending
+  reservation, zero-amount / invalid-destination / zero-address
+  validation, owner rotation proposed by recovery with a 48 h delay
+  and owner cancel, setInstantCap resets the window) and
+  SentinelReactive v5 (HIGH and escalation now veto their own request
+  before freezing; MEDIUM/HIGH verdicts delivered before their request
+  are buffered as pending vetoes and applied on arrival instead of
+  being dropped; escalation state keyed per (chainId, vault); freeze
+  list built dynamically from watched chains; watchVault idempotent).
+  Base contracts: dead _coverDebt removed; pay() trust assumption
+  documented in code and README. Tests 23 -> 38, all passing.
+- Redeployed as the v4/v5 stack (see docs/deployments.md). The
+  VerdictRegistry was kept (redeploying it would have invalidated all
+  historical verdict evidence); its source is unchanged so the repo
+  source still matches the deployed bytecode. Old v3 vaults were
+  drained back to the deployer through their own withdrawal flow.
+- Evidence re-run on the new stack, including the F1 proof: after a
+  recovery unfreeze, executing the HIGH-flagged request reverts
+  (Vetoed) - under the old RSC it would have paid out.
+- Noted during the run: Ethereum Sepolia meters the vault's
+  requestWithdrawal at ~710k gas via the public RPC (identical
+  bytecode ~150k on Base) - a chain/RPC artifact; evidence scripts
+  budget 1.2M gas there. Also: worker.log is append-only across
+  stacks, so log greps must be cross-checked against chain data
+  (an old-stack line briefly suggested a duplicate verdict for the
+  new stack's request 5; chain data proved the verdict unique and
+  correct - HIGH 684 from the burst history).
