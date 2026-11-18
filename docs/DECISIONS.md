@@ -20,3 +20,17 @@
 - Recovery key leaked: no in-place rotation (address is fixed at
   deployment). Treat as a redeploy event: deploy fresh vaults with a
   new recovery key and migrate balances.
+
+## 2026-11-18 — Full audit (owner-ordered re-verification)
+- Independent contract review + self re-verification. Tests 23/23, eval
+  re-run byte-identical, modelHash re-derived and matching on-chain.
+- Fixed: worker and replay now rebuild history from the deployment
+  blocks recorded in deployments.json (the old bounded lookbacks could
+  skew the 24h features after a restart); replay orders same-block
+  requests by logIndex and retries transient RPC errors; generated
+  video intermediates and worker.log untracked from git.
+- Open findings F1/F2 (HIGH): a HIGH verdict freezes but never vetoes
+  its own originating request, and a MEDIUM verdict delivered before
+  its WithdrawalRequested is dropped permanently. Fix = RSC v5
+  (veto-on-HIGH + pending-veto buffer + chain-aware keys + dynamic
+  freeze list), pending the owner's go-ahead.

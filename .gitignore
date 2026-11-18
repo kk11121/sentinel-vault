@@ -6,3 +6,8 @@ broadcast/
 __pycache__/
 *.pyc
 worker/worker.log
+video/frames/
+video/frames_v3/
+video/frames_v4/
+video/demo_v4_video.mp4
+video/demo_v4_audio.m4a

@@ -42,15 +42,22 @@ SEV = {0: "LOW", 1: "MEDIUM", 2: "HIGH"}
 
 
 def scan(event, from_block, to_block, chunk=49):
+    import time
+
     out, start = [], from_block
     while start <= to_block:
         end = min(start + chunk, to_block)
-        try:
-            out += event.get_logs(from_block=start, to_block=end)
-        except Exception as e:  # noqa: BLE001
-            if "pruned" not in str(e):
-                raise
-            print(f"  (skipping pruned range {start}-{end})")
+        for attempt in range(4):
+            try:
+                out += event.get_logs(from_block=start, to_block=end)
+                break
+            except Exception as e:  # noqa: BLE001
+                if "pruned" in str(e):
+                    print(f"  (skipping pruned range {start}-{end})")
+                    break
+                if attempt == 3:
+                    raise
+                time.sleep(2 * (attempt + 1))  # transient RPC/proxy errors
         start = end + 1
     return out
 
@@ -69,14 +76,27 @@ def main():
     vault = w3.eth.contract(address=vault_addr, abi=VAULT_ABI)
     registry = base.eth.contract(address=REGISTRY, abi=VERDICT_ABI)
 
+    # Scan from the deployment blocks recorded in deployments.json so
+    # the rebuilt history is complete (the 24h features need all of
+    # it); --lookback is only a fallback when no deploy block is known.
+    import json
+
+    deploy_blocks = {}
+    dep_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "deployments.json")
+    if os.path.exists(dep_path):
+        with open(dep_path) as f:
+            deploy_blocks = json.load(f).get("deployBlocks", {})
+
     head = w3.eth.block_number
-    reqs = scan(vault.events.WithdrawalRequested(), head - args.lookback, head)
+    vault_from = deploy_blocks.get("vaults", {}).get(str(cid), head - args.lookback)
+    reqs = scan(vault.events.WithdrawalRequested(), vault_from, head)
     target = next((l for l in reqs if l["args"]["requestId"] == args.request_id), None)
     if target is None:
-        print(f"request {args.request_id} not found on chain {cid} in lookback window")
+        print(f"request {args.request_id} not found on chain {cid} since block {vault_from}")
         return 1
     bhead = base.eth.block_number
-    verdicts = scan(registry.events.VerdictPosted(), bhead - 20000, bhead)
+    registry_from = deploy_blocks.get("registry", bhead - 20000)
+    verdicts = scan(registry.events.VerdictPosted(), registry_from, bhead)
     verdict = next(
         (l for l in verdicts
          if l["args"]["requestId"] == args.request_id
@@ -91,8 +111,9 @@ def main():
     profile = dict(PROFILES["daily-small"])
     profile["known_destinations"] = load_known_destinations()
     history = []
+    target_key = (target["blockNumber"], target["logIndex"])
     for l in reqs:
-        if l["blockNumber"] >= target["blockNumber"]:
+        if (l["blockNumber"], l["logIndex"]) >= target_key:
             break
         b = w3.eth.get_block(l["blockNumber"])
         history.append((b["timestamp"], l["args"]["to"], l["args"]["amount"] / 1e18))

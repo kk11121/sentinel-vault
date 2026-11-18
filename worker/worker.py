@@ -61,8 +61,11 @@ VAULTS = {
 RSC = None
 
 
+DEPLOY_BLOCKS = {}
+
+
 def load_deployments():
-    global REGISTRY, VAULTS, RSC
+    global REGISTRY, VAULTS, RSC, DEPLOY_BLOCKS
     path = os.path.join(ROOT, "deployments.json")
     if not os.path.exists(path):
         return
@@ -73,6 +76,7 @@ def load_deployments():
     REGISTRY = Web3.to_checksum_address(d["registry"])
     VAULTS = {int(cid): Web3.to_checksum_address(a) for cid, a in d["vaults"].items()}
     RSC = d.get("rsc")
+    DEPLOY_BLOCKS = {int(cid): int(b) for cid, b in d.get("deployBlocks", {}).get("vaults", {}).items()}
 
 
 def load_known_destinations():
@@ -148,7 +152,15 @@ def main():
     # vault addresses — see worker/known_destinations.json).
     profile = dict(PROFILES["daily-small"])
     profile["known_destinations"] = load_known_destinations()
-    last_block = {cid: connections[cid].eth.block_number - 2000 for cid in RPCS}
+    # Start scanning at each vault's deployment block so the in-memory
+    # history is rebuilt completely on restart (the 24h features need
+    # all of it). Already-judged requests are appended to history and
+    # then skipped via the registry's hasVerdict check.
+    last_block = {
+        cid: (DEPLOY_BLOCKS[cid] - 1 if cid in DEPLOY_BLOCKS
+              else connections[cid].eth.block_number - 2000)
+        for cid in RPCS
+    }
     state = {"nonce": base.eth.get_transaction_count(writer.address)}
     history = {cid: [] for cid in RPCS}  # (timestamp, to, amount_eth)
     handled = set()

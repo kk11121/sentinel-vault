@@ -1,9 +1,0 @@
-[worker] iforest-3 up; writer=0xD4bdEb625fC4f87b9E126d1aC24b578dF9B9c307 registry=0x0e55C8F84F44336b766Af8469b74d5163abB7F32 modelHash=0x0dfa7cb105d6c64d39889abc4926fc514b0cccf075c9e3071ddff893fcfd45c5 thresholds={'medium': 620, 'high': 670}
-[worker] chain 84532 req 5 to=0x831Ae1004584C3DEfa15aC774C64d95e840131Dc amount=1000000000000000 feats=[0.1, 0.0, 0.69, 0.0, 0.0, 0.08, 0.0, 0.0] -> LOW (522) verdict tx 9790688482ca9a73bfb8ec46056b5585cdc52b3f750c88ca1ac652d6b7b4441f
-[worker] chain 11155111 req 1 already judged, skip
-[worker] chain 11155111 req 2 already judged, skip
-[worker] chain 11155111 req 3 already judged, skip
-[worker] chain 1301 req 1 already judged, skip
-[worker] chain 1301 req 2 already judged, skip
-[worker] chain 1301 req 3 already judged, skip
-[worker] poll error chain 84532: HTTPSConnectionPool(host='sepolia.base.org', port=443): Max retries exceeded with url: / (Caused by ProxyError('Unable to connect to proxy', RemoteDisconnected('Remote end closed connection without response')))

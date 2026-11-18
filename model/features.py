@@ -62,7 +62,7 @@ PROFILES = {
 
 def compute_features(profile, history, to, amount, timestamp, balance):
     """history: list of (timestamp, to, amount) past withdrawals, sorted.
-    Returns the 6-float feature list for a new request."""
+    Returns the 8-float feature list for a new request."""
     med_amt = profile["median_amount"]
     med_int = profile["median_interval_seconds"]
 
