@@ -37,7 +37,7 @@ owner unfreeze attempt, zero-amount request).
 ## Demo video
 2-3 min, English subtitles, no owner voice. (docs/demo-runbook.md is
 historical — it describes the pre-audit shoot.)
-Local file ready: video/demo.mp4 (1280x720, English narration + burned-in captions; v6 rebuild 2026-11-18 with animated scenes and explorer-data cards from the v5/v6 evidence run in docs/deployments.md). Upload to YouTube (unlisted) or DoraHacks and paste the URL here.
+Local file ready: video/demo.mp4 (1280x720, 2m20s, English narration + burned-in captions; v7 polish 2026-11-19: tighter pacing, quiet procedural BGM ducked under the narration, soft accents at the veto/freeze/match moments; scenes and explorer-data cards from the v5/v6 evidence run in docs/deployments.md). Upload to YouTube (unlisted) or DoraHacks and paste the URL here.
 
 ## Repo
 https://github.com/kk11121/sentinel-vault
