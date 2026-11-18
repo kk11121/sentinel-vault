@@ -441,3 +441,113 @@ the final request:
   before). depositTo 0.7694 lREACT
   (tx 0x3019029258d795325968be24ae77e114d9d470a086b24c5a39518e63a0bab91d)
   restored RSC reserves from 0.2506 to 1.0200 lREACT.
+
+## v5/v6 stack (second-review fixes: M1, M6, cancel) — deployed 2026-11-18 night
+
+Funded by the owner's own pk910 PoW faucet session (+2.5 Sepolia ETH,
+see the reserves note above). The registry is unchanged. GuardedVault
+v5 adds cancelWithdrawal; SentinelReactive v6 adds the watched-verdict
+check (M1) and idempotent pace counting (M6). Forge suite: 45 tests.
+
+- SentinelReactive v6 — Lasna 0x00eC75c154EF87A38836819594c0F2898cF3Eb06
+  (deploy block 8656666, balance 0.8 lREACT, reserves topped to 1.02
+  lREACT after the evidence run: conversion tx
+  0x3a15a0bf1995c49334301dfdd1280b80ce7d4dc854f29b75f819f8ae1c47f234,
+  depositTo tx 0x7b36e186ecff584eb019ef31dbaf8778ceb4ddbb49ef478994828628b37c8be6)
+- GuardedVault v5 — Base 0x1Eb81CC9a9b9760D1DA575C268c47f727369c6f4
+  (block 60440742, funded 0.012 ETH), Sepolia
+  0xd8D640DeEcD14DA46b78e29285cdc682BA118Ad6 (block 12161873, 0.012),
+  Unichain 0xAf17d1e294c35cA4eFE35c58B201D6F95Aef3DE4 (block 68157605,
+  0.0008 — the deployer's Unichain balance was nearly empty; the vault
+  hosts small requests only, which is all its evidence needed)
+- Config on all vaults: wait 180 s, largeThreshold 0.004 ETH,
+  instantCap 0.008 ETH / 3600 s.
+
+### Evidence run on v5/v6 (2026-11-18 night)
+
+- Negative tests revert as designed: attacker requestWithdrawal
+  (NotOwner), owner unfreeze (NotRecovery), zero-amount request
+  (ZeroAmount), stranger cancelWithdrawal (NotRequester), and a third
+  0.004 burst request (InsufficientBalance — the aggregate reservation
+  doing its job).
+- Case A, normal loop (Base): request 1, 0.001 ETH to the owner,
+  tx 0xa2cd8b68b61ad93e625eff3e301ea114fad397efed63584fda07b7dba6c9bad1
+  -> verdict LOW 522 in 11 s (tx
+  0x6f3da7d62fbaf6d31561140743520b47f4457fefffb3a4a8b4c83386c3480a59)
+  -> executed, tx
+  0xbaa2fa62505484a764f7ad955c6e040d5cc7460e2710d64c39388dc38cee4e23.
+- HIGH vetoes + freeze-all (Base): request 2 (0.004 to a first-seen
+  destination) HIGH 735 (verdict tx
+  0x5d192de11fb1cf251c67b29a381c60fa28685d56d8a0997ba638654369aad3ae);
+  request 3 HIGH 714 (verdict tx
+  0x2876f28a61d7adda8e0975d0e727a07429bd88459b8e21e696c415d08967522a);
+  request 4 (0.0015 to 0x...dEaD) HIGH 749 (verdict tx
+  0xa55bce9d1a384a8c3daff7ed17ff67a5de3c3dd71cecfe651f611a50510ae14e);
+  request 5 HIGH 713 (verdict tx
+  0xa2e587dd91de4f150ef831bfb5643b0b48df058d248557e29ef1039b86398b63 —
+  see the H1 note below). All vaults froze each time; recovery
+  unfreezes followed on all three chains.
+- F1 proof on this stack: after a recovery unfreeze (Base tx
+  0xff3bfdc0e3ca865cf16144b58fc7b7a408573a16548072cc09590e81fbb41945),
+  executing HIGH-flagged request 2 reverted (tx
+  0x66bc581d4dbf3150542f58659082eeed6bd6e81e6082ed109dec5188b7dd7346,
+  status 0 — Vetoed).
+- M1 proof (new in v6): the verdict writer posted a HIGH verdict
+  (score 999) naming the PREVIOUS stack's Base vault — a real vault
+  the registry has history for, but one this RSC does not watch
+  (chainId 84532, vault 0xA1eDD9dB..., requestId 999; postVerdict tx
+  0xc3515b45ad174d3a13168342845a53af753cc4b370c05e23484646d5402fb92e).
+  The RSC emitted VerdictForUnwatched (Lasna tx
+  0x9a57eec68dfcf9c31baf519f3d7e61e72247893b5e0e68977bc6176d4abc7abe)
+  and did nothing else: no veto, no freeze, all vaults stayed
+  unfrozen. Under v5 the same verdict would have frozen every vault.
+- Cancel proof (new in v5): request 6 (0.005 to the owner, queued;
+  tx 0x69519d2f86d6506ff94661d29ed71c27879f500c5a050c2014695549cb3642bc)
+  held a 0.005 reservation; the owner cancelled it (tx
+  0x0e811f6624f1835abc9ecfc782cc69e7aef9ba9b69b04118e9a660a30f26f254)
+  and pendingTotal returned to 0; after the pace unfreeze below,
+  executing request 6 reverted with Cancelled. (The worker later
+  scored the cancelled request HIGH 712 from its burst-era features —
+  verdict tx
+  0x191b34ff3e597e4bdf1ecbabc9a7fcd501390978f4e40091cd6fb0bb811b6d02;
+  the resulting veto callback is a no-op on a cancelled request,
+  exactly as designed.)
+- Pace freeze (deliberate): with the worker stopped and verified
+  stopped, requests 6-11 brought the RSC's cross-chain count to 11;
+  request 11 (tx
+  0x6196bba9c16aab4b4dbbd68e667f63f13849e6763ec3a24300c6e0aec9c7397a)
+  triggered a single Lasna transaction
+  0x81c35c2827a84a669db73ffdc691c20acbe9d4869884112442f08f6366c54aff
+  carrying RequestSeen + PaceFreeze + FreezeRequested x3; all three
+  vaults froze with no AI verdict involved. Recovery unfreezes: Base
+  0x01e76defb6d8ab5b354d3c5966c385e39b821c3d9c340d7e6daf2a12ff529ee2,
+  Sepolia 0x9a4e00f9c9eab89a70a9125ab26a3e5591bb118fc8725f5d7e20179bcb028ca3,
+  Unichain 0xabcda0f54e0fccf7d23d8ba3c8bb333684a1d083958b59ddb1521855e36161fe.
+  The pace-run requests were judged when the worker restarted (HIGH
+  687-712 on burst-heated features) and vetoed.
+- H1 retry, live: the worker's first verdict post for request 5
+  failed with a nonce conflict (the M1 proof above had used the same
+  writer key from a second process). The worker marked it for retry;
+  after a process restart it re-posted the verdict successfully
+  (HIGH 713, tx above). No verdict was lost.
+- Sepolia: request 1 (0.004 to a first-seen destination) HIGH 700
+  (verdict tx
+  0x583e8b1c7c0e3d0eec4fdb665de33a21c12cda614ca28f5f670cd6602d6f5945),
+  veto + freeze-all — its freeze landed while a Unichain request was
+  in flight, which reverted VaultFrozen (tx
+  0x013b9bf27ee0581e05b7e336d162c7379b9e728dd5d983334e6d096d4f857dc8);
+  requests 2 and 3 (0.001 / 0.0005 to the owner) scored MEDIUM 624
+  (verdict tx
+  0x98ef6e728f86a251dc807aaebbe5a6c18c76c30936d9b8987e38df5327a17716,
+  request->verdict 40 s) and MEDIUM 627 (verdict tx
+  0x24ecf1156640dc778e0ed81266ce670a7390311820b3efc047444ca4b02724cc):
+  veto-only, no freeze anywhere, verified on-chain after each.
+- Unichain: request 1 (0.0005 to the owner, tx
+  0xec06a071c6b9107d26fb6906cf0c6ec0f3a5886ad520a24bd08c06c69ccfdb88)
+  LOW 611 (verdict tx
+  0xf2f3827da97fdc4a0fae293e1e1cb7d2956c564eebd2be00f4f38b10ca041469)
+  -> executed (tx
+  0x857caa44e38d9f09e3a43e3cb24053a560e066f54167e52c1612f17873618483).
+- Final state: all vaults unfrozen; RSC reserves 1.02 lREACT. The
+  previous (v4/v5) vaults were drained back to the deployer and are
+  superseded.
