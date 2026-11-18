@@ -40,7 +40,7 @@ historical — it describes the pre-audit shoot.)
 Local file ready: video/demo.mp4 (1280x720, English narration + burned-in captions; v6 rebuild 2026-11-18 with animated scenes and explorer-data cards from the v5/v6 evidence run in docs/deployments.md). Upload to YouTube (unlisted) or DoraHacks and paste the URL here.
 
 ## Repo
-[GitHub URL to fill after the owner creates/pushes — public, MIT]
+https://github.com/kk11121/sentinel-vault
 
 ## Owner checklist at submission time
 1. Create DoraHacks account (if not yet) and register for the buildathon.
