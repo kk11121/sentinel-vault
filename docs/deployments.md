@@ -130,7 +130,7 @@ NOT a clean slate. Wait out the window or expect one escalation.
   Replay of the verdict: severity/score/featuresHash/modelHash all MATCH.
 - Post-run: unfreeze x3, wait restored to 180 s.
 
-## v3 stack (post-review redeploy, 2026-11-18) — IN PROGRESS
+## v3 stack (post-review redeploy, 2026-11-18) — SUPERSEDED by v4/v5 below (vaults drained 2026-11-18)
 Review fixes deployed: owner-only requests, instant cap, recovery key,
 registry v2 (chainId + duplicate rejection), RSC v4 (request watching +
 pace freeze). Config on all vaults: wait 180 s, threshold 0.004 ETH,
@@ -250,3 +250,128 @@ Final state (restored after the runs):
 - print_config at restore time: balances Base 0.0120 / Sepolia 0.0080 /
   Unichain 0.0120 ETH, all unfrozen, wait 180 s, threshold 0.0040,
   cap 0.0080/3600 s; RSC reserves 0.6611 lREACT (spent ~0.34 on the runs).
+
+## v4/v5 stack (post-audit redeploy, 2026-11-18) — CURRENT
+
+Full self-audit (independent adversarial review + line-by-line
+re-check) produced findings F1-F13; all fixed in GuardedVault v4 /
+SentinelReactive v5 (38 forge tests). The VerdictRegistry was NOT
+redeployed (0x0e55C8F84F44336b766Af8469b74d5163abB7F32, block
+60039272) so all historical verdicts stay verifiable.
+
+Old v3 vaults drained back to the deployer first:
+- drain requests: Base id 6 (0x2a1b7aef2ca1f937947cc2c19bd7d6246dd6e719bcabc892e92072f9bee00748),
+  Sepolia id 4 (0xd604f12c89a0daf520d747189a3226bd362e1fe1900823635abc748ba1fb23a7),
+  Unichain id 4 (0x00c54d6cb6d1461ee0353264fd1b03c913ee8b6fc9eb13d5dc157bff5b66ec29)
+- drain executes: Base 0xff9d4d64a43c2ddf4f61e2327b6678c8fb1174d59116c764a9dbfddc0ccb8391,
+  Sepolia 0x4a082239a275acddb71dd04f06d70d827595eea0d12243a70bff7e26d6ca86a4,
+  Unichain 0xa2d4854540cef8a822e7d4ce269c0a05f10c60ff2568a3f4445de97a67db603f
+  (0.0002 ETH dust left per vault)
+- lREACT top-up: 0.005 Sepolia ETH via the faucet converter
+  (0x357cfb8b47c1c47368e3d7bcf448de8b09b9d389f1ca4775d1a9f7ad949b453c) -> +0.525 lREACT
+
+Deployments:
+- SentinelReactive v5 (Lasna): 0x48FA2842cCCbe70EEfD9FE094331af4f932A35A7
+  deploy tx 0x0c86c1963624e0fe5ee94823c98e24a973020378220af625b6b87b461a727f8f, block 8635331,
+  funded 0.8 lREACT; depositTo 0x4e7cd463423fa84a789fc2d3bc61d1c06b53cef2e43a33125e85935a2668265f
+  -> reserves 1.0 lREACT (verified via reserves())
+- GuardedVault v4 Base: 0xA1eDD9dBBAE962B41950F3314660e966bBEa703b
+  tx 0x44302f2d3d67a195585abce226f4b03ba416fd50f6d3d78fe0df798266ea8d42, block 60328343, funded 0.02 ETH;
+  watchVault 0xf219092a74e68ae1979667962436a581c3542918ab1902f7e7b5184aa0a7c009
+- GuardedVault v4 Sepolia: 0x3C17336A3E7f929FEF4608fB053f539dF734B535
+  tx 0x54d0599edd0b15cc4b40c62554741f7031c7d8af61a252149e827075801dd500, block 12160045, funded 0.004 ETH;
+  watchVault 0x1051b8024840c65852f6887514b76cc103231cb3028e09f9660ff1f7867884d3
+- GuardedVault v4 Unichain: 0x464F45Cf2bF16B1b8E454eaCDD2ff68002E58bce
+  tx 0x3fdf1f129df886ee98c0b9a9a1578a0f959f9f273916b98e2e413f96c9ce8b9f, block 68135168, funded 0.012 ETH;
+  watchVault 0xb1be27025f026d4c461f234103bb02504304d2fe1e40349aa3e2f85e83854c3c
+- Config on all vaults: wait 180 s, threshold 0.004 ETH, cap 0.008 ETH / 3600 s
+  (print_config verified; recovery funded 0.0015 ETH per chain)
+
+### v4/v5 evidence run (2026-11-18, model iforest-3, wait temporarily 60 s)
+
+setWait(60) x3: Base 0xc65cb5413ac4d5363eb4f8afff1dcbbd959a4ebea3f72a2f2cf2ef8c709cabb6,
+Sepolia 0x71ba39f981cdd536f17c81e15f88dffcfc23039bd025d8219efe24742e968f1a,
+Unichain 0x53359557dbb13b33fef04c4b17f7e17bdacd0a41c9e9829b8ee24ffab79fa17c
+
+Negative tests (all status 0, as designed):
+- attacker requestWithdrawal: 0xba697361c2be2517115634fe654a33e5d223570adae440face46474a91ea1a0f (NotOwner)
+- owner unfreeze: 0x4293eca0440dbc4550be05fd5f036258a73ccf7f53874061019cc3d78b47e37c (NotRecovery)
+- zero-amount request: 0x74a3a519e27ffb8186984d2fabb33e96f529cf72cdf758eb36c4fed2abbd863f (ZeroAmount, new in v4)
+
+Case A (Base, normal loop):
+- request id 1, 0.008 ETH: 0xcc8d20591294f70ad6892ca0d75d404bdb1356ddeabdf020e4b4c12149aa732a (ts 1794987716)
+- Lasna RequestSeen: 0x1c5f2266203323ef9e85ff0c6fed9378ea8475e9733c8fc7128b8d5c3859b591
+- verdict LOW 583: 0xcdfdc9182d473717f1b0a33987e963bf578d25702f18cb71f26833051effdfbc (ts 1794987723, +7 s)
+- Lasna VerdictIgnored: 0x92c084361f1bcb75d06f1c21c5aeef8208d5bf57317be00be7986291962628ee
+- executed after wait: 0xdb81ae9c5c23ebc1fd1894287e53e8de0d31a036b12afe7981f7926e8c91cd3c
+
+Burst (Base, 3 x 0.003 ETH + cap):
+- requests: id 2 0x26e0e902bab3c629edac513ca174ade4bc390184abe2ccae65899ccd3b8f0ba0,
+  id 3 0x9d33177377f23f8817ff9709727e2f7164366329205d5ee1eb0592509176100d,
+  id 4 0xfb8fd7754aeb8a0c39e8aa73857e5b93b8dc140cc1934066e85fd24f14d9d61a (id 4 queued by the instant cap)
+- verdicts: MEDIUM 662 0x65b2a6a1293b6f82cecc909a293166cd655061ab15f5c38f516a2ccf0709a830,
+  HIGH 713 0xdafeeea7a6ce89c322e234cf445a1ea240ab87ea129913944a14bc280abbad1b,
+  HIGH 717 0x7f482639581576d0f551ccd35e1714f2033831b706913d0567e4cd427885681c
+- Lasna reactions: MEDIUM veto 0x40411f9339d3725e8a1f78c61237e4f577fc0ea651e95fbacae06323555b0bab;
+  HIGH 713 -> 0x2fab0dfd99cf4a2560efc31525f3c1668f1fdd873426851d4effaf3b28d0859a (VetoRequested + FreezeRequested x3);
+  HIGH 717 -> 0xcf0d48f6ff486c1cbd6eb641a26c37d26c76d4830f8bab2649f0508f8c1bcf42 (same shape)
+- callbacks on Base: veto req 2 0x52726a3bb36c1171897391465bf88ef2860c7aa14da30671fda37cb4b58e4064 (verdict +1 s),
+  veto req 3 0x11683dd28e780b8459746312c90b14f8e390657db90266f7417b13503d12c2e1,
+  freeze 0xd7d7a15ec52462860f989268ffefc01b935cbaed5754a4e4d55791dc5c579c15 (verdict +2 s);
+  Unichain freeze 0xc8c929f25fbc6b175f4bed64963ec0125b744333cd6993433eb0941dd7ccdb03 (+2 s);
+  Sepolia freeze 0x12da46b2c061335fe5ed741a840ab0b9923efd4be055b69c094b4841f4e6adc5 (+9 s)
+- withdrawals(2/3/4).vetoed == true on-chain (req 3's veto is the F1 fix)
+
+F1 proof (HIGH-flagged request cannot execute after unfreeze):
+- recovery unfreeze x3: Base 0x06c38ae0c2dca2ba6d8d2c5f23bfbbaa829797e77c1d421ed2072237e7b1f3b1,
+  Sepolia 0x5e7fa2c0efaa79ecb71c0d5b182f6721edde422370ff540be0aa316625014eda,
+  Unichain 0xbc09836b5f09073fca26b5529ef8b71707e3edaecf067c93722afe5f9345db6c
+- execute req 3 (HIGH): 0x1a46adbf1a74beeb3cc76579a235cd6df14c51e3e5da470e75de795049ac404c status 0 (Vetoed)
+- execute req 2 (MEDIUM): 0x0393cd0ed02ad201283ffdd221a562c388ca7a4b18ee1862e90f05f732ac8f1d status 0 (Vetoed)
+
+Pace build-up + pace freeze (worker down):
+- Unichain reqs 1-3: 0x210eaa014d2a2eae41fceb0db02b59f2c00909e6ff36a3bef43a2773298b7693,
+  0xbf259dc9d781868c4ea8d0d89d7c687543d41c248722226dcf1df21e8214444c,
+  0x3e69832b2b3a265b79c31371c064ae4f0d6383c98646297129d881715829f37b
+  -> LOW 522 0x4a7caf859d3a977e22159ee0f0dd0fb3dee46cb8247b8eefaf7927918c7502ce,
+  LOW 611 0xc2b5128e3ce89e9df46f57911658bdca6e15f50285129ab2ed8938dabad0d478,
+  HIGH 675 0xdd81a9db924f9f20e8bd89a5b2fe6df469952d468a4686c4cd78bf048bd5abbf (froze all three again)
+- Sepolia req 1 (0.0005 ETH): 0xfdafbec6d9c142a2d916693e6b77f298de9ad68aa8d1bac6a4e8a13633b5055f
+  (first three attempts ran out of gas at a 400k limit - Sepolia meters this call at ~710k gas,
+  gasUsed 709411 on success; chain/RPC artifact, identical bytecode costs ~150k on Base)
+  -> verdict LOW 571 0xa3c6423a040235461619e48ad42c618dbb38ba7ad99f8d1a457c8993a97b24f1
+- Base reqs 5-6: 0x45be457b8291088d78a55b31a179b4fb6a0c054f583b6e2264ae6b2f650234d4,
+  0xc023ff68b373e8b5296adeb76ec1980e0234219a9a2c167d5fa8b90acf551a47
+  -> HIGH 684 0x5cde6e3a22708962f054c857dcb5ebaaed581b944614b91e5ac5950cbc112337,
+  HIGH 685 0x69e732ab6b604526775ae830b71069319eb42319fef12afbcb32af3d46ba13db (both vetoed + froze all)
+- 11th request (Base req 7, worker down): 0xc376f55ab175eb2997c4cbd8b1ad48b92f5cbb9f34724f82c443a6fa7fd8b0e3
+  -> single Lasna tx 0xd81d1d28793290c8cab50dce0a8b1a1ffafca46a33d758a3ed9f6ae4c736be14
+  (RequestSeen + PaceFreeze + FreezeRequested x3); paceCount 11, paceFrozen true;
+  Sepolia freeze callback 0x98667143fe3f3396df4aa0ed8f1471533b5a568c5a6e6c5933c75144371e577b
+- worker restarted afterwards: req 7 judged HIGH 685
+  (0xb314eb7b5fc28435023f5e16b457584e57613e85e8e3b59878edf9cb8bdc0531); all earlier
+  requests skipped via hasVerdict. (The worker process had exited during the run -
+  session cleanup on the VM - and was restarted; the pace freeze above happened
+  while it was down, which is the property being demonstrated.)
+
+Cleanup:
+- recovery unfreeze x3: Base 0x75d72b03457469c8b0699a6d56ae19887c4656d9f7fa6345411a390f99759c56,
+  Sepolia 0xe6e7a9fa459628eeea5eff0ed8822e1f30638c79ae8f801b9604b774d96ffb08,
+  Unichain 0xc1da08c89f7c84795bd576cfd697f4ed21abc1840a209d40ad1dc0f65e4bf82d
+- setWait(180) x3: Base 0x7066ac23f6a3d12f220d7d92ff69b1eb964de271608da697695725782ce4b90d,
+  Sepolia 0xbdab1244267c5754882833e2d34749d433886a82d670a8c0c2958cff51678112,
+  Unichain 0xb0c4869bedaaf6d1d45aaa30ba3e794f7a79927d0e2bc3c46ae7166adea35151
+
+Replay verification (scripts/replay.py, recomputed from chain data):
+- Base req 1: all MATCH (LOW 583)
+- Base req 3: all MATCH (HIGH 713)
+- Sepolia req 1: all MATCH (LOW 571)
+
+Latency (block timestamps, 2026-11-18 v4/v5 runs):
+- request -> verdict: 7 s
+- verdict -> veto/freeze callback: 1-9 s (Sepolia slowest)
+- request -> all-vaults-frozen, worst observed: ~16 s; waitSeconds 180 s (~10x margin)
+
+Final state: balances Base 0.0200 / Sepolia 0.0040 / Unichain 0.0120 ETH
+(minus callback fees paid during the runs), all unfrozen, wait 180 s,
+threshold 0.0040, cap 0.0080/3600 s; RSC balance 0.8000 lREACT, reserves 1.0000 lREACT.
