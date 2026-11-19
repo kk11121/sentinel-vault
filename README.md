@@ -361,13 +361,17 @@ are demonstrated in the Proof section.
 ## Run it
 
 ```bash
-forge test                                   # 38 unit tests
+forge test                                   # 45 unit tests
 .venv/bin/python model/train_v3.py           # regenerate model.json + hash
 .venv/bin/python eval/run_eval.py            # regenerate eval/RESULTS.md
 .venv/bin/python worker/worker.py            # live verdict worker
 .venv/bin/python scripts/replay.py --chain 84532 --request-id 3
 .venv/bin/python scripts/print_config.py     # live config table from chain
 ```
+
+Note: a single replay run can take several minutes — it scans the
+origin chain's event history in small chunks (Base Sepolia limits
+log queries to ~200 blocks per call).
 
 ## Repo layout
 
