@@ -85,6 +85,12 @@ queues), and the RSC's cross-chain pace freeze. A still slower drain
 (e.g. one sub-threshold withdrawal per day to a known address) is not
 detected by any method here and is disclosed as a residual risk.
 
+Note on the baseline: rule-v1 is one specific fixed rule — the one
+deployed at M2 — not every possible rule. A hand-tuned rule with a
+24 h cap would catch this known scenario too; the model's advantage
+is that one code path adapts to each vault's normal without
+per-vault tuning.
+
 ## Two vault personalities, one rule vs profile-relative models
 
 monthly-large: median payment 0.2 ETH, balance 5 ETH. rule-v1 is applied

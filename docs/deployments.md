@@ -561,3 +561,39 @@ check (M1) and idempotent pace counting (M6). Forge suite: 45 tests.
   (0.0035 ETH) and Unichain (0.011 ETH) vaults were left in place
   after a drain attempt ran into the old stack's own freeze state —
   valueless testnet dust, not worth further transactions.
+
+## Post-submission maintenance (2026-11-21)
+
+Cross-chain freeze callbacks for the v5/v6 evidence run, recovered
+after the fact from the destination chains' logs (each verified
+against the explorer: status ok, delivered by that chain's callback
+proxy via deliverCallback, emitting the vault's Frozen event):
+
+- HIGH 735 episode (Base request 2; verdict tx
+  0x5d192de11fb1cf251c67b29a381c60fa28685d56d8a0997ba638654369aad3ae,
+  2026-11-18T14:00:40Z): Lasna reaction tx
+  0xfe429e3c9831b9a4b2ae045a2629974fe80afe6c7a211d0f591c5e4814b720a2
+  (VetoRequested + FreezeRequested x3, Lasna block 8657074). Freeze
+  callbacks: Base
+  0xf8393de45fa91bfa65492145a419be8d629bce2e6f3ce561bf4748c0b365ee03
+  (14:00:42Z, already cited in the README), Ethereum Sepolia
+  0xfa750ebbcc8eca022dcbaefb6942e2c4256c1b7476fc4ee96c21625b98c0565c
+  (14:00:48Z), Unichain Sepolia
+  0x78f074180abb4d3a85dc7f2ee44e34cfea5950d666bf7567c00e0cb4e2930c85
+  (14:00:43Z).
+- MEDIUM-escalation episode (Sepolia request 3; verdict tx
+  0x24ecf1156640dc778e0ed81266ce670a7390311820b3efc047444ca4b02724cc,
+  2026-11-18T14:19:28Z; Lasna Escalated tx
+  0xb931eedff1fe486247c331a9cc363171280e4c42bf0125e51660abf60e847311):
+  freeze callbacks: Base
+  0x26c03c06ea438357b600fa93c392ba5f3ec2914399000b29bcfa6877c2eeb57d
+  (14:19:31Z), Ethereum Sepolia
+  0xa273c5523fff4ffb5edbc03a9f28f29c594b5499271e4489616d4dd1afb1eaee
+  (14:19:36Z), Unichain Sepolia
+  0xb3fad0a98f2c23ea7ebd72cc0367c88bc47128a22f2121843e0daf96554874ce
+  (14:19:32Z).
+
+Unichain vault top-up: 0.002 ETH from the deployer, tx
+0x209f84b956514d521c7ac552f4a9d69945d3d2f839f4c653e2329aa6ff50c04e
+(2026-11-21) — vault balance 0.0003 -> 0.0023 ETH, so the vault can
+keep paying destination-chain callback fees during judging.
