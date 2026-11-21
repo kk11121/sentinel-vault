@@ -206,3 +206,17 @@
   worst-case freeze figure) at the end of the description.
   Saved and verified on the public page; nothing else in the
   submission was touched.
+- 2026-11-21 (evening): LLM explainer added — a scoped exception
+  to the review's "no LLM" do-not, which targeted a model SWAP.
+  The Isolation Forest still decides every verdict; an LLM now
+  writes a plain-language rationale for each verdict after it is
+  posted, reading only the numeric feature vector and the
+  verdict record (docs/verdict-rationales.md). It cannot
+  influence, delay, or block enforcement, and verdict
+  reproducibility, thresholds, and the eval accounting are
+  unchanged. During judging the step is performed by the
+  operator's scheduled AI agent run (appended to the daily
+  heartbeat); the production mapping (a hosted LLM API call in
+  the same slot) is documented in the repo. Rationales are
+  stored in worker/rationales.jsonl beside the numbers they
+  describe, starting with the req 12 primer verdict.

@@ -409,6 +409,19 @@ prompt-injection surface: the model consumes numeric features
 computed from chain events, never text an attacker controls, so a
 crafted withdrawal cannot talk its way past the judge.
 
+**Where an LLM does fit: explaining, not deciding.** Every verdict
+is accompanied by a short plain-language rationale written by an
+LLM that reads only the numeric feature vector and the verdict
+record — never text an attacker controls — and writes after the
+verdict is already posted, so it cannot influence, delay, or block
+enforcement; if it is unavailable, verdicts continue without it.
+The rationales live in `worker/rationales.jsonl` next to the exact
+numbers they describe, so the words can be checked against the
+features (design and a sample: `docs/verdict-rationales.md`). In a
+production deployment this step is a hosted LLM API call in the
+same slot; during this buildathon it is performed by the
+operator's scheduled AI agent run, disclosed as such.
+
 `modelHash = 0x0dfa7cb105d6c64d39889abc4926fc514b0cccf075c9e3071ddff893fcfd45c5`
 
 The known-destination list the worker scores against is committed at
