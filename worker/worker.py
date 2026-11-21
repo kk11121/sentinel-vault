@@ -17,7 +17,18 @@ advances past a request whose verdict is not yet posted; a failed
 posting is retried on later poll cycles (head-of-line, so feature
 order is preserved), and no single log's RPC failure can kill the
 process.
+
+Scanning is incremental: each poll cycle fetches and processes a
+bounded slice of the backlog, advancing (and persisting) the cursor
+chunk by chunk. The original loop fetched the whole cursor-to-head
+range in one all-or-nothing pass, which after a restart meant ~1M
+blocks on Base Sepolia — a single failed chunk discarded the entire
+pass, so a restarted worker could never catch up. The persisted
+cursor + history (worker/worker-state.json) make restarts resume
+where the previous process stopped; a first start still rebuilds
+everything from the deploy blocks.
 """
+import json
 import os
 import sys
 import time
@@ -69,6 +80,19 @@ RSC = None
 
 
 DEPLOY_BLOCKS = {}
+
+# Scan state (cursor + rebuilt history) is persisted here after every
+# processed chunk so a restart resumes where the previous process left
+# off instead of rescanning from the deploy blocks. Runtime data only;
+# gitignored, and ignored on load unless it matches the deployment in
+# deployments.json.
+STATE_PATH = os.path.join(ROOT, "worker", "worker-state.json")
+# Upper bound on blocks fetched per chain per poll cycle while catching
+# up; steady state is governed by the chain head, not this cap.
+MAX_BLOCKS_PER_CYCLE = 40000
+# eth_getLogs range per fetch, per chain (Base Sepolia's public RPC
+# rejects ranges over 200 blocks; the others stay conservative).
+CHUNK_SIZES = {84532: 200, 11155111: 50, 1301: 100}
 
 
 def load_deployments():
@@ -182,6 +206,38 @@ def main():
     # verdict until the next process restart).
     prepared = {}
 
+    # Resume the scan position and history from the state file when it
+    # matches the current deployment; otherwise fall back to the full
+    # rescan from the deploy blocks (the history is then rebuilt by the
+    # same scan, just more slowly). The H1 delivery semantics above are
+    # unchanged: the cursor still never advances past an unposted
+    # verdict, it just advances chunk by chunk and survives restarts.
+    resumed = False
+    if os.path.exists(STATE_PATH):
+        try:
+            with open(STATE_PATH) as f:
+                saved = json.load(f)
+            saved_vaults = {int(k): v for k, v in saved["vaults"].items()}
+            if saved.get("registry") == REGISTRY and saved_vaults == VAULTS:
+                for cid in RPCS:
+                    last_block[cid] = int(saved["last_block"][str(cid)])
+                    history[cid] = [tuple(x) for x in saved["history"][str(cid)]]
+                resumed = True
+        except Exception:  # noqa: BLE001
+            resumed = False
+
+    def save_state():
+        data = {
+            "registry": REGISTRY,
+            "vaults": VAULTS,
+            "last_block": {str(cid): last_block[cid] for cid in RPCS},
+            "history": {str(cid): history[cid] for cid in RPCS},
+        }
+        tmp = STATE_PATH + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(data, f)
+        os.replace(tmp, STATE_PATH)
+
     def prepare(cid, log):
         """Compute the verdict payload for one log and record the
         request in history. Runs at most once per request."""
@@ -259,35 +315,55 @@ def main():
         f"registry={REGISTRY} modelHash=0x{mhash.hex()} thresholds={model.thresholds}",
         flush=True,
     )
+    print(
+        f"[worker] scan state: "
+        f"{'resumed from worker-state.json' if resumed else 'fresh rescan from deploy blocks'}",
+        flush=True,
+    )
     while True:
         try:
             for cid, vault in vault_contracts.items():
                 w3 = connections[cid]
                 try:
                     head = w3.eth.block_number - 2  # margin against RPC head skew
-                    if head <= last_block[cid]:
-                        continue
-                    logs = []
-                    start = last_block[cid] + 1
-                    while start <= head:
-                        end = min(start + 49, head)
-                        logs += vault.events.WithdrawalRequested().get_logs(
-                            from_block=start, to_block=end
-                        )
-                        start = end + 1
                 except Exception as e:  # noqa: BLE001
                     print(f"[worker] poll error chain {cid}: {e}", flush=True)
                     continue
-                for log in logs:
-                    if process(cid, log):
-                        last_block[cid] = max(last_block[cid], log["blockNumber"])
-                    else:
-                        # Head-of-line block: keep the cursor before this
-                        # log's block so the request is re-fetched and
-                        # retried next cycle. Later requests on this
-                        # chain wait behind it, preserving the feature
-                        # order replay reproduces; other chains proceed.
-                        last_block[cid] = min(last_block[cid], log["blockNumber"] - 1)
+                # Fetch and process in bounded slices, advancing the
+                # cursor chunk by chunk (and persisting it) instead of
+                # one all-or-nothing pass from the cursor to the head:
+                # after a restart the backlog is ~1M blocks on Base, and
+                # a single failed chunk used to discard the whole pass,
+                # so a restarted worker could never catch up.
+                budget_end = min(head, last_block[cid] + MAX_BLOCKS_PER_CYCLE)
+                while last_block[cid] < budget_end:
+                    start = last_block[cid] + 1
+                    end = min(start + CHUNK_SIZES.get(cid, 50) - 1, budget_end)
+                    try:
+                        logs = vault.events.WithdrawalRequested().get_logs(
+                            from_block=start, to_block=end
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        print(f"[worker] poll error chain {cid}: {e}", flush=True)
+                        break
+                    blocked = False
+                    for log in logs:
+                        if process(cid, log):
+                            last_block[cid] = max(last_block[cid], log["blockNumber"])
+                        else:
+                            # Head-of-line block: keep the cursor before
+                            # this log's block so the request is re-fetched
+                            # and retried next cycle. Later requests on
+                            # this chain wait behind it, preserving the
+                            # feature order replay reproduces; other
+                            # chains proceed.
+                            last_block[cid] = min(last_block[cid], log["blockNumber"] - 1)
+                            blocked = True
+                            break
+                    if not blocked:
+                        last_block[cid] = max(last_block[cid], end)
+                    save_state()
+                    if blocked:
                         break
         except Exception as e:  # noqa: BLE001
             print(f"[worker] cycle error, continuing: {e}", flush=True)

@@ -366,8 +366,11 @@ documented rather than patched:
   Posting failures inside a run are retried (the scan cursor never
   advances past an unposted verdict, and a verdict counts only when
   its receipt confirms), but if the process itself dies, verdicts
-  wait until it is restarted; it then rescans from the deployment
-  blocks and the registry's duplicate rejection makes that safe.
+  wait until it is restarted; it then resumes from the scan
+  position and history it persists after every processed chunk
+  (worker/worker-state.json; a first start rescans from the
+  deployment blocks), and the registry's duplicate rejection makes
+  restarts safe.
   The supervisor is not in this repo, but the process is not left
   unwatched: a watchdog on the operator's infrastructure checks it
   about every 30 minutes and restarts it via `scripts/wmanage.py`

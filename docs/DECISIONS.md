@@ -169,3 +169,30 @@
 - NOT done, per the review's own "do not" list: no contract
   changes (no sliding-window rewrite), no model swap to an LLM,
   no video re-shoot, no YouTube re-host of the demo video.
+- 2026-11-21 (later): worker scan fix. The original poll loop
+  fetched the whole cursor-to-head range in one all-or-nothing
+  pass; after a restart the Base Sepolia backlog is ~1.1M blocks
+  (tens of thousands of getLogs calls), so a single failed chunk
+  discarded the entire pass and a restarted worker could never
+  catch up — in practice no new request had been judged since
+  the 2026-11-18 evidence run. The loop now fetches and
+  processes bounded slices, advances the cursor chunk by chunk,
+  and persists cursor + rebuilt history to
+  worker/worker-state.json (gitignored) after every chunk, so
+  restarts resume where the previous process stopped. H1
+  delivery semantics unchanged (the cursor never advances past
+  an unposted verdict; feature order preserved). Live proof the
+  same day: the worker caught up past the full backlog, judged
+  Base req 12 (the heartbeat primer, below), and a watchdog
+  restart resumed from the persisted state instead of rescanning.
+- 2026-11-21: heartbeat primer fired as planned — Base req 12,
+  0.001 ETH to the owner (request tx e50ca563687be95b74d1b735d-
+  e176676f9eba1747f28df6ae26684d0ffcfe5dd). The worker scored it
+  MEDIUM 632, exactly the pre-score prediction (the interval
+  feature saturated after the ~61 h gap); the RSC vetoed it
+  (verdict tx 0b9caf6524576d0071c0f8d70ea3865d96f618fd911e4553-
+  ba5907a744a45cc7), no vault froze, funds untouched. The daily
+  heartbeat cron is live with the recorded safeguards:
+  pre-score before every submission, predicted HIGH = never
+  submit, unexpected MEDIUM-or-worse in steady state = stop,
+  primer days submit once and never twice within an hour.

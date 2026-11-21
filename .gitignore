@@ -6,6 +6,7 @@ broadcast/
 __pycache__/
 *.pyc
 worker/worker.log
+worker/worker-state.json
 video/frames/
 video/frames_v3/
 video/frames_v4/
