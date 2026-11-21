@@ -196,3 +196,13 @@
   pre-score before every submission, predicted HIGH = never
   submit, unexpected MEDIUM-or-worse in steady state = stop,
   primer days submit once and never twice within an hour.
+- 2026-11-21: BUIDL description updated via Manage Submission.
+  Read-back of the live form showed the C1 overclaim and the
+  unqualified cap phrasings existed only in the README, never in
+  the BUIDL text (its description starts at "Why this design"),
+  so the only change made was appending the "Live during
+  judging" paragraph (watchdog supervision, the daily heartbeat
+  verdicts, the VerdictRegistry liveness link, the ~17 s
+  worst-case freeze figure) at the end of the description.
+  Saved and verified on the public page; nothing else in the
+  submission was touched.
