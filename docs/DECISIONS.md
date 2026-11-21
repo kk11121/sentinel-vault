@@ -93,3 +93,79 @@
   cancelWithdrawal (M2/M3 mitigation) in the vault, followed by a full
   stack redeploy, evidence re-run, video re-render, and re-verification.
   Forge suite extended to 45 tests (7 new), all passing before deploy.
+
+## 2026-11-21 — Post-submission Claude review; fix programme executed
+- Claude's post-submission adversarial review received (2026-11-21):
+  predicted score 16-17/20 (Execution 5, Integration 4, Usefulness
+  3-4, Craft 4). Headline finding: the substance is sound; the
+  weakest point is evidence presentation (dead explorer links,
+  cross-chain freeze not traceable from the README).
+- Muse verified every point against the code, the repo and the
+  chains before acting. Adopted and fixed the same day:
+  - C1 (headline overstated the first-withdrawal freeze): README
+    headline rewritten to the measured behaviour (first anomalous
+    withdrawal vetoed; by the second, all vaults frozen).
+  - C2 ("per hour" caps are fixed-window): all plain per-hour
+    phrasings in the README qualified as fixed one-hour windows
+    (boundary straddle can reach up to twice the cap). No contract
+    change — a redeploy would orphan the evidence set.
+  - C3 (cross-chain freeze evidence incomplete): the four dead
+    explorer links fixed (sepolia.etherscan.org -> .io,
+    sepolia.unichain.org -> sepolia.uniscan.xyz), and the freeze
+    callback txs for the HIGH-735 and MEDIUM-escalation episodes
+    recovered from the destination chains' logs, verified, and
+    added to the README Proof section and docs/deployments.md.
+  - C4 (worker-liveness text stale): README "Status during
+    judging" and the Known-limitations worker bullet rewritten to
+    the real setup (watchdog on operator infrastructure, ~30 min
+    patrol, restarts via scripts/wmanage.py, runs until results
+    are announced) plus a VerdictRegistry event-history link so
+    liveness is checkable from outside.
+  - C5 (slow-drain claim overgeneralised to all fixed rules):
+    clarifying sentence added to the README and eval/RESULTS.md
+    (a hand-tuned rule with a 24 h cap would catch the known
+    scenario too; the model's advantage is per-vault adaptation
+    without tuning). Video/narration NOT edited, by decision.
+  - C7 (README said both 45 and 38 tests): the historical mention
+    now reads "38 tests at v4/v5; 45 now".
+  - R2 (recovery key described as "kept offline" while the demo
+    key sits on the operator machine): README now splits the
+    production design from the testnet demo reality.
+  - Craft cleanup: PingTest.sol/PingTest2.sol and the superseded
+    video builders + frame sets moved to archive/; video/README.txt
+    rewritten for the shipped v7 video; forge suite still 45/45.
+  - Unichain vault topped up by 0.002 ETH (tx in
+    docs/deployments.md) so it can keep paying callback fees.
+- Deferred:
+  - C6 ("Last verified on-chain" date + config table refresh):
+    scheduled as a single final pass on 2026-12-05, just before
+    the deadline, so the date judges see is days old, not weeks.
+- Process rules adopted from the review:
+  - R1: ALL repo and BUIDL changes land before the submission
+    deadline (2026-12-06 05:00 JST); no commits after it, so
+    nothing can look like out-of-period work.
+  - R3: balances (Lasna reserves, verdictWriter gas, vault fee
+    balances) are planned to last up to ~2 months of judging.
+  - R8: the worker watchdog also checks the vaults' frozen state
+    and reports an unexpected freeze.
+- Heartbeat adopted with safeguards: a daily 0.001 ETH withdrawal
+  on Base to the owner (known destination), judged and executed,
+  then re-deposited, so the latest-verdict timestamp stays fresh
+  through judging. Pre-scored locally with the repo model before
+  starting: at a steady 24 h cadence the score is a stable 553
+  (LOW, margin +67 to the MEDIUM threshold 620) with no drift over
+  14 simulated days — BUT any gap of >= 48 h saturates the
+  interval feature and the next request scores 632 (MEDIUM, veto
+  only). The current gap is already ~61 h, so the first heartbeat
+  must be treated as a sacrificial primer: expect a veto, never
+  re-request within the same hour (a second MEDIUM inside 1 h
+  would escalate to a freeze-all), and start the daily cadence
+  the next day. Stop the heartbeat immediately if any verdict is
+  MEDIUM or worse beyond that planned primer.
+- REJECTED: R5 — posting the Japan-eligibility question to the
+  Reactive official community / Telegram. The user declined this
+  for the second time (first on 2026-11-17); the DoraHacks Q&A
+  question of 2026-11-17 stands as the only inquiry.
+- NOT done, per the review's own "do not" list: no contract
+  changes (no sliding-window rewrite), no model swap to an LLM,
+  no video re-shoot, no YouTube re-host of the demo video.
