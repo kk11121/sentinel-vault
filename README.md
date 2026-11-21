@@ -417,9 +417,14 @@ verdict is already posted, so it cannot influence, delay, or block
 enforcement; if it is unavailable, verdicts continue without it.
 The rationales live in `worker/rationales.jsonl` next to the exact
 numbers they describe, so the words can be checked against the
-features (design and a sample: `docs/verdict-rationales.md`). In a
-production deployment this step is a hosted LLM API call in the
-same slot; during this buildathon it is performed by the
+features (design and a sample: `docs/verdict-rationales.md`).
+Before a rationale is kept, every number in it is traced
+mechanically to the verdict record (`scripts/check_rationale.py`),
+and the explainer also files an observation note on what the
+model cannot see — the other chains' activity, the hour of day —
+advisory only, with the limits of that read stated in the note.
+In a production deployment this step is a hosted LLM API call in
+the same slot; during this buildathon it is performed by the
 operator's scheduled AI agent run, disclosed as such.
 
 `modelHash = 0x0dfa7cb105d6c64d39889abc4926fc514b0cccf075c9e3071ddff893fcfd45c5`

@@ -22,7 +22,26 @@ already on-chain. The rationale is commentary, not authority:
 - **Checking the words:** rationales are stored in
   `worker/rationales.jsonl`, one JSON line per verdict, next to the
   exact feature vector and score they describe, so anyone can verify
-  that the text matches the numbers.
+  that the text matches the numbers. Two rules keep the text honest:
+  every feature the rationale mentions is cited as `name value`
+  (e.g. `interval_log 1.80`), and before a rationale is kept, every
+  number in it is traced mechanically to the record with
+  `scripts/check_rationale.py` (derived figures, such as the gap in
+  hours, must be declared in the record's `allowed_extra`). A
+  rationale that fails the check is revised once; if it fails
+  again, the entry is stored with `rationale: null` and
+  `checked: false` — an unexplained verdict is recorded as such,
+  never dressed up.
+- **Observations — watching what the model cannot see:** the model
+  judges each vault from its own chain's history and has no
+  time-of-day feature, so the explainer also files a short
+  `observations` note from outside the feature vector: the other
+  vaults' recent requests and frozen state, the request's hour,
+  and the destination's footprint on the other chains. An
+  observation cannot change any verdict; it is a second set of
+  eyes for the human record, and it must state the limits of its
+  own read (for example, Ethereum Sepolia's early history cannot
+  currently be re-read — its public RPC has pruned that range).
 - **Production mapping:** in a production deployment this step is a
   hosted LLM API call in the same slot (post-verdict, numeric input
   only). During this buildathon's judging period it is performed by
@@ -54,3 +73,14 @@ Rationale as generated:
 > this request and freezes nothing; the same request made a day
 > later, with the interval back to normal, scores LOW and
 > executes.
+
+Observation filed with it:
+
+> Cross-chain, nothing stood out: no requests on the Unichain
+> vault since the 2026-11-18 evidence programme, and no freeze or
+> callback activity on Ethereum Sepolia either (its recent
+> history cannot be re-read — the public RPC has pruned that
+> range — so this rests on the absence of observed events, not a
+> full rescan). The request arrived at 12:01 JST, an unremarkable
+> hour for this vault. The model's same-chain view missed none of
+> this, because there was nothing to miss.

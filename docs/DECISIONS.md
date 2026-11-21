@@ -220,3 +220,16 @@
   the same slot) is documented in the repo. Rationales are
   stored in worker/rationales.jsonl beside the numbers they
   describe, starting with the req 12 primer verdict.
+- 2026-11-21 (later): explainer hardened per the owner's chosen
+  package. (1) Faithfulness: features must be cited as
+  name+value, and scripts/check_rationale.py mechanically traces
+  every number in a rationale to its record (declared
+  derivations in allowed_extra) before the rationale is kept;
+  verified PASS on the primer entry and FAIL on a corrupted
+  copy. (2) Observations: the explainer also files a note from
+  outside the feature vector (other chains' recent requests and
+  frozen state, hour of day, destination's cross-chain
+  footprint), advisory only, stating the limits of its own
+  read. The live model itself stays frozen — new features
+  would change modelHash and break the submitted coherence;
+  detection-scope work is deferred to a post-results v2.
