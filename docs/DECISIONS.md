@@ -274,3 +274,11 @@
   A replay.py run for Base req 12 (the primer verdict) exceeded
   a 900 s budget on 2026-11-24 and was relaunched with 3600 s;
   its MATCH result will be appended here when it lands.
+- 2026-11-24 (later): that replay landed — Base req 12 RESULT:
+  MATCH on all four fields (severity MEDIUM, score 632,
+  featuresHash, modelHash), recomputed from chain data in
+  ~49 minutes. The replayed full-precision features
+  [0.0953, 0.0, 1.804, 0.0, 0.0, 0.091, 0.0, 0.0] confirm the
+  rounding analysis above: the rationale entry's stored vector
+  (0.1 / 1.8 / 0.09) is the worker log's 2dp rendering, and the
+  verdict itself is exactly reproducible by the designed path.
