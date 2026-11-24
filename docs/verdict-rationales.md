@@ -26,12 +26,28 @@ already on-chain. The rationale is commentary, not authority:
   every feature the rationale mentions is cited as `name value`
   (e.g. `interval_log 1.80`), and before a rationale is kept, every
   number in it is traced mechanically to the record with
-  `scripts/check_rationale.py` (derived figures, such as the gap in
-  hours, must be declared in the record's `allowed_extra`). A
-  rationale that fails the check is revised once; if it fails
-  again, the entry is stored with `rationale: null` and
-  `checked: false` — an unexplained verdict is recorded as such,
-  never dressed up.
+  `scripts/check_rationale.py`. The check was tightened on
+  2026-11-24 (external review): there is no tolerance band — a
+  number must equal a record value exactly at the precision the
+  text writes it (the old ±1% band would have let "626" pass for a
+  score of 590, being within 1% of the 620 threshold); derived
+  figures, such as the gap in hours, are computed by the checker
+  itself from record fields (`ts` and `prev_request_ts`) — the
+  writer-declared `allowed_extra` field is abolished, and an entry
+  still carrying it fails; plain-language claims are checked too
+  (a "below the MEDIUM threshold" must be true of the score, a
+  "first-seen destination" must agree with `first_seen`); and with
+  `--onchain` the entry is compared against the verdict's
+  `VerdictPosted` log (chain, vault, requestId, severity, score —
+  and `featuresHash`, recomputed from the entry's vector when the
+  vector is stored at full precision; entries whose vector is
+  rounded to 2 decimal places, as the worker log renders it,
+  cannot reproduce the hash, which commits to full-precision
+  floats — for those, `scripts/replay.py` is the full check, as it
+  recomputes the features from chain data). A rationale that fails
+  the check is revised once; if it fails again, the entry is
+  stored with `rationale: null` and `checked: false` — an
+  unexplained verdict is recorded as such, never dressed up.
 - **Observations — watching what the model cannot see:** the model
   judges each vault from its own chain's history and has no
   time-of-day feature, so the explainer also files a short

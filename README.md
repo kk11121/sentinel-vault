@@ -67,11 +67,16 @@ project builds, with the watcher itself kept unable to touch funds.
   verdicts to a registry. Veto/freeze are callable *only* through each
   chain's Reactive callback proxy with the RSC as the injected sender.
   A leaked AI key can cause a freeze (recoverable) — it can never
-  **move** the funds.
+  **move** the funds. It can, however, *burn* a little money on
+  every forced freeze: callback fees come out of the vaults' own
+  balances and each freeze-all reaction draws on the RSC's
+  reserves, so a leaked key is a slow drain as well as a DoS —
+  bounded, recoverable, and priced in the leak table below.
 - **A single, minimal-privilege server.** The worker is a single
   off-chain process. If it goes down, withdrawals still execute after
   the timelock (fail-open). If it is compromised, the worst it can do
-  is freeze — never move funds. Without Reactive, the worker would
+  is freeze and burn the per-round fees priced in the leak table —
+  never move funds. Without Reactive, the worker would
   need freeze keys and gas on three chains. With Reactive, it holds
   one key that can only write a verdict on one chain, and the RSC —
   on-chain, auditable, no server — does the cross-chain enforcement.
@@ -330,7 +335,7 @@ treasury would use hours.
 | key | can do | cannot do | if compromised |
 |---|---|---|---|
 | owner (daily) | deposit; request withdrawals (destination fixed at request time); cancel its own queued withdrawals; cancel a pending owner rotation | unfreeze; change settings; veto/freeze | attacker can *request* withdrawals to their own address, but ≥ threshold always queues under the model + RSC, instant flow is capped at 0.008 ETH per fixed one-hour window (a burst straddling a window boundary can reach up to twice that), and 11 requests inside one window freeze everything. The recovery key can rotate the owner (below) and tighten settings meanwhile. |
-| verdictWriter | post verdicts to the registry | move funds; unfreeze; reconfigure | worst case is a freeze DoS (posted HIGHs freeze the vaults). Funds stay put. Recovery: registry owner calls `setVerdictWriter` with a fresh key, recovery key unfreezes the three vaults — 4 transactions, documented in `docs/DECISIONS.md`. |
+| verdictWriter | post verdicts to the registry | move funds; unfreeze; reconfigure | cannot steal, but can burn. Posted HIGHs freeze the vaults — including HIGHs naming a requestId that does not exist: the RSC records a pending veto for it and still freezes all three, and `freeze()` has no already-frozen shortcut, so every round is delivered and paid for in full. The registry dedups per (chain, vault, requestId), not per writer, so fresh requestIds make the supply of fake HIGHs unlimited. Costs per freeze-all round, measured from the two recorded episodes (see below): each freeze callback is paid from the destination vault's own balance — 0.0000007118 ETH on Base Sepolia, 0.0000001779 ETH on Unichain Sepolia — and the Lasna reaction draws ≈0.02 lREACT from the RSC's reserves, so ~50 rounds exhaust the 1.0200 lREACT reserves and the RSC then goes inactive until topped up. The writer's own posting gas (0.0000005856 ETH per verdict) is no brake either: its current balance alone funds ~8,500 posts. Recovery: registry owner calls `setVerdictWriter` with a fresh key, recovery key unfreezes the three vaults, reserves are topped up via the system contract's `depositTo` — documented in `docs/DECISIONS.md`. |
 | recovery (offline in production; on the operator machine in this demo) | unfreeze; change wait / threshold / instant cap; cancel any queued withdrawal; propose an owner rotation (48 h delay, owner can cancel, anyone can finalize after the delay) | request withdrawals; move funds; post verdicts | attacker could unfreeze and weaken settings, removing the safety margins — but moving funds still needs the owner key, and the model + RSC keep watching. The recovery address itself is set at deployment and cannot be rotated in place; a compromised recovery key means redeploying the vaults. A merely *lost* owner key no longer strands funds: the recovery key proposes a replacement owner and the rotation finalizes after 48 h unless the (compromised) owner cancels it. |
 
 Disclosure: because MEDIUM×2 escalates, a leaked verdictWriter — or
@@ -340,6 +345,25 @@ above, when two Sepolia MEDIUMs landed within the hour). That is
 deliberate: freezing is the safe direction, it is always
 recoverable by the recovery key, and the alternative (a freeze
 that needs a human to approve) would not land in time.
+
+What a freeze-all round actually costs (measured 2026-11-24 from
+the recorded 2026-11-18 episodes, not estimated): the destination
+callback fee is pulled from each vault's own balance by the
+callback proxy's `pay()` call — the Base Sepolia vault's balance
+dropped by exactly 0.0000007118 ETH across the freeze-callback
+block in both episodes, and the Unichain Sepolia vault's by
+exactly 0.0000001779 ETH in both. The Ethereum Sepolia figure
+could not be measured the same way: its public RPC has pruned
+that block range. On Lasna, the system contract's payment to the
+network operator was 0.01969580 lREACT for the HIGH reaction
+(veto + 3 freezes) and 0.02048490 lREACT for the escalation
+reaction — call it ≈0.02 lREACT of RSC reserves per freeze-all
+round. The vault-side fees are dust; the binding damages of a
+leaked writer are the freeze itself and the ~50 rounds it takes
+to drain the reserves, after which enforcement pauses until the
+reserves are topped up. No withdrawal can be executed *to* the
+attacker by any of this — the drain is the ceiling of the damage,
+and it is priced here rather than waved away as "funds stay put".
 
 ## Known limitations (second adversarial review, 2026-11-18 — updated)
 

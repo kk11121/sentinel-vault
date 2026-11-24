@@ -233,3 +233,44 @@
   read. The live model itself stays frozen — new features
   would change modelHash and break the submitted coherence;
   detection-scope work is deferred to a post-results v2.
+- 2026-11-24: second Claude review round (owner-relayed) — every
+  point verified against the code and the chain before acting.
+  (1) verdictWriter leak, TRUE and worse than the README said: a
+  HIGH verdict naming a watched vault freezes all three vaults
+  even when its requestId does not exist (SentinelReactive calls
+  _freezeAll unconditionally on HIGH; freeze() has no
+  already-frozen shortcut), the registry dedups per requestId so
+  fake HIGHs are unlimited, and each round is paid for — measured
+  from the two recorded 2026-11-18 freeze-all episodes: callback
+  fee 0.0000007118 ETH (Base) / 0.0000001779 ETH (Unichain) per
+  callback out of each vault's own balance (identical in both
+  episodes; Ethereum Sepolia not measurable, its public RPC has
+  pruned that range), and 0.01969580 / 0.02048490 lREACT drawn
+  from the RSC's reserves per reaction, so ~50 rounds exhaust the
+  1.0200 lREACT reserves. README rewritten: "cannot steal, but
+  can burn", with the measured figures and the recovery path
+  (setVerdictWriter, 3 unfreezes, depositTo top-up). No redeploy.
+  (2) check_rationale.py tightened: the ±1% tolerance is gone —
+  a number must match a record value exactly at the precision
+  the text writes it; allowed_extra is abolished (an entry
+  carrying it fails) and derivations (gap hours, interval
+  multiple) are computed by the checker from ts +
+  prev_request_ts; semantic checks added (severity band,
+  threshold comparisons, first_seen claims); --onchain compares
+  the entry with its VerdictPosted log (chain, vault, requestId,
+  severity, score, and featuresHash when the stored vector is
+  full-precision — the on-chain hash commits to full-precision
+  floats, so a 2dp-rounded stored vector cannot reproduce it;
+  for those entries replay.py remains the full check).
+  Specified tests: score 590 written as "626" FAILs and score
+  668 written as "672" FAILs (both passed the old checker).
+  All 4 existing rationales.jsonl entries FAIL as-is (abolished
+  allowed_extra + uncomputed derivations — reported, not
+  deleted); with their records completed from worker-state
+  history (to, prev_request_ts, ts) all 4 PASS, and their
+  on-chain severity/score match. The heartbeat cron's explainer
+  step now records to + prev_request_ts + the full-precision
+  pre-score vector and runs the checker with --onchain.
+  A replay.py run for Base req 12 (the primer verdict) exceeded
+  a 900 s budget on 2026-11-24 and was relaunched with 3600 s;
+  its MATCH result will be appended here when it lands.
